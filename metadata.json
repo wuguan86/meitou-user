@@ -1,0 +1,8 @@
+{
+  "name": "美迹AI (Meji AI)",
+  "description": "美透旗下美迹AI研究院推出的全栈AI创作平台，支持文生图、图生图、文生视频、图生视频、声音克隆等多种创作能力。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
