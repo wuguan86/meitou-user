@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, ShieldCheck, Phone, Mail, Lock, Key, ChevronRight, X, Heart, Gift } from 'lucide-react';
+import { sendCode, loginByCode } from '../api/auth';
 
 interface LoginProps {
   onLoginSuccess: (userData: Partial<User>) => void;
@@ -35,13 +36,110 @@ const Modal = ({ isOpen, title, content, onClose }: { isOpen: boolean; title: st
 };
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
-  const [identifier, setIdentifier] = useState('');
-  const [loginMode, setLoginMode] = useState<'code' | 'password'>('code');
-  const [activeModal, setActiveModal] = useState<'service' | 'privacy' | 'notice' | null>(null);
+  const [phone, setPhone] = useState(''); // 手机号
+  const [code, setCode] = useState(''); // 验证码
+  const [invitationCode, setInvitationCode] = useState(''); // 邀请码
+  const [password, setPassword] = useState(''); // 密码（密码登录模式）
+  const [loginMode, setLoginMode] = useState<'code' | 'password'>('code'); // 登录模式
+  const [activeModal, setActiveModal] = useState<'service' | 'privacy' | 'notice' | null>(null); // 协议弹窗
+  const [countdown, setCountdown] = useState(0); // 验证码倒计时
+  const [loading, setLoading] = useState(false); // 登录加载状态
+  const [sendingCode, setSendingCode] = useState(false); // 发送验证码加载状态
+  const [error, setError] = useState(''); // 错误提示
 
-  const handleLogin = (e: React.FormEvent) => {
+  // 倒计时效果
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
+
+  // 验证手机号格式
+  const validatePhone = (phone: string): boolean => {
+    return /^1[3-9]\d{9}$/.test(phone);
+  };
+
+  // 发送验证码
+  const handleSendCode = async () => {
+    // 验证手机号
+    if (!phone.trim()) {
+      setError('请输入手机号');
+      return;
+    }
+    if (!validatePhone(phone)) {
+      setError('手机号格式不正确');
+      return;
+    }
+
+    setSendingCode(true);
+    setError('');
+
+    try {
+      await sendCode({ phone: phone.trim() });
+      setCountdown(60); // 设置60秒倒计时
+    } catch (err: any) {
+      setError(err.message || '发送验证码失败，请重试');
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  // 处理登录
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLoginSuccess({ name: identifier || '创作官' });
+    setError('');
+
+    // 如果是验证码登录模式
+    if (loginMode === 'code') {
+      // 验证手机号
+      if (!phone.trim()) {
+        setError('请输入手机号');
+        return;
+      }
+      if (!validatePhone(phone)) {
+        setError('手机号格式不正确');
+        return;
+      }
+      // 验证验证码
+      if (!code.trim()) {
+        setError('请输入验证码');
+        return;
+      }
+      if (!/^\d{6}$/.test(code)) {
+        setError('验证码格式不正确');
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const response = await loginByCode({
+          phone: phone.trim(),
+          code: code.trim(),
+          invitationCode: invitationCode.trim() || undefined,
+        });
+
+        // 登录成功，调用回调函数
+        onLoginSuccess({
+          id: response.userId.toString(),
+          name: response.username || '创作官',
+          points: response.balance || 0,
+          phone: response.phone,
+          email: response.email,
+          isLoggedIn: true,
+        });
+      } catch (err: any) {
+        setError(err.message || '登录失败，请重试');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // 密码登录模式（暂未实现，可以后续扩展）
+      setError('密码登录功能暂未开放，请使用验证码登录');
+    }
   };
 
   return (
@@ -77,20 +175,33 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
+            {/* 错误提示 */}
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-3 text-red-400 text-sm font-bold">
+                {error}
+              </div>
+            )}
+
             <div className="space-y-4">
+              {/* 手机号输入 */}
               <div className="relative group">
                 <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
                   <Phone className="w-5 h-5" />
                 </div>
                 <input 
                   type="text" 
-                  placeholder="手机号 / 邮箱" 
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="手机号" 
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    setError(''); // 清除错误提示
+                  }}
+                  maxLength={11}
                   className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
                 />
               </div>
 
+              {/* 验证码或密码输入 */}
               {loginMode === 'code' ? (
                 <div className="relative group">
                   <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
@@ -99,9 +210,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   <input 
                     type="text" 
                     placeholder="输入验证码" 
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); // 只允许数字，最多6位
+                      setError(''); // 清除错误提示
+                    }}
+                    maxLength={6}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-32 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
                   />
-                  <button type="button" className="absolute right-4 top-1/2 -translate-y-1/2 text-[#2cc2f5] font-black text-xs hover:text-white uppercase tracking-widest">获取验证码</button>
+                  <button 
+                    type="button" 
+                    onClick={handleSendCode}
+                    disabled={countdown > 0 || sendingCode || !validatePhone(phone)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#2cc2f5] font-black text-xs hover:text-white uppercase tracking-widest disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {countdown > 0 ? `${countdown}s` : sendingCode ? '发送中...' : '获取验证码'}
+                  </button>
                 </div>
               ) : (
                 <div className="relative group">
@@ -111,11 +235,17 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   <input 
                     type="password" 
                     placeholder="输入密码" 
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError(''); // 清除错误提示
+                    }}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
                   />
                 </div>
               )}
 
+              {/* 邀请码输入 */}
               <div className="relative group">
                 <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-pink-400 transition-colors">
                   <Gift className="w-5 h-5" />
@@ -123,16 +253,20 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 <input 
                   type="text" 
                   placeholder="邀请码 (选填)" 
+                  value={invitationCode}
+                  onChange={(e) => setInvitationCode(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-pink-400/50 transition-all text-white placeholder:text-gray-600 font-bold"
                 />
               </div>
             </div>
 
+            {/* 登录按钮 */}
             <button 
               type="submit"
-              className="w-full brand-gradient py-5 mt-4 rounded-2xl font-black text-white shadow-xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.2em]"
+              disabled={loading}
+              className="w-full brand-gradient py-5 mt-4 rounded-2xl font-black text-white shadow-xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.2em] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              即 刻 开 始
+              {loading ? '登录中...' : '即 刻 开 始'}
             </button>
 
             <div className="text-center text-[11px] px-2 pt-2">
