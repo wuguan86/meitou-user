@@ -3,7 +3,9 @@
  * 提供统一的 HTTP 请求封装
  */
 
-const API_BASE_URL = 'http://localhost:8080/api';
+import { getApiBaseUrl } from './config';
+
+const API_BASE_URL = getApiBaseUrl();
 
 // 请求拦截器：添加 Token
 const getHeaders = (): HeadersInit => {
@@ -33,11 +35,22 @@ const request = async <T>(
     },
   });
 
-  const data = await response.json();
-
+  // 检查响应状态
   if (!response.ok) {
-    throw new Error(data.message || '请求失败');
+    // 尝试解析错误响应
+    let errorMessage = '请求失败';
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+    } catch (e) {
+      // 如果响应不是 JSON，使用状态文本
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    throw new Error(errorMessage);
   }
+
+  // 解析成功响应
+  const data = await response.json();
 
   // 如果响应格式是 Result<T>
   if (data.code !== undefined) {

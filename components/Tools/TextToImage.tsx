@@ -1,43 +1,143 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Send, Wand2, Download, RefreshCcw, Image as ImageIcon, Zap, ChevronDown, Check, ChevronUp } from 'lucide-react';
 import { AssetNode } from '../../types';
 import AssetPickerModal from '../modals/AssetPickerModal';
+import * as generationAPI from '../../api/generation';
 
 interface TextToImageProps {
   onSelectAsset: (asset: AssetNode) => void;
+}
+
+// 模型选项接口
+interface ModelOption {
+  id: string; // 模型ID
+  name: string; // 模型显示名称
 }
 
 const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset }) => {
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
   const [images, setImages] = useState<AssetNode[]>([]);
-  const [model, setModel] = useState('meji-flux-v2');
+  const [model, setModel] = useState('');
   const [resolution, setResolution] = useState('1K');
   const [aspectRatio, setAspectRatio] = useState('Auto');
   const [quantity, setQuantity] = useState('1');
   const [ratiosOpen, setRatiosOpen] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]); // 模型列表
+  const [loadingModels, setLoadingModels] = useState(true); // 加载模型列表状态
 
   const ratios = [
     { label: 'Auto' }, { label: '16:9' }, { label: '9:16' }, { label: '3:2' }, { label: '2:3' }, { label: '4:3' }, { label: '3:4' }, { label: '1:1' }, { label: '21:9' }
   ];
 
-  const handleGenerate = () => {
+  // 从后端加载模型列表（只在组件挂载时执行一次）
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        setLoadingModels(true);
+        // 获取所有平台的模型列表
+        const platformModels = await generationAPI.getTextToImageModels();
+        
+        // 合并所有平台的模型到一个列表
+        const allModels: ModelOption[] = [];
+        platformModels.forEach(platform => {
+          platform.models.forEach(modelInfo => {
+            allModels.push({
+              id: modelInfo.id,
+              name: modelInfo.name
+            });
+          });
+        });
+        
+        setModels(allModels);
+        
+        // 如果有模型且当前没有选中模型，默认选择第一个
+        if (allModels.length > 0) {
+          setModel(prevModel => prevModel || allModels[0].id);
+        }
+        
+        // 检查是否有"一键制作同款"的配置参数
+        try {
+          const makeSimilarConfigStr = localStorage.getItem('makeSimilarConfig');
+          if (makeSimilarConfigStr) {
+            const makeSimilarConfig = JSON.parse(makeSimilarConfigStr);
+            if (makeSimilarConfig.generationType === 'txt2img' && makeSimilarConfig.config) {
+              const config = makeSimilarConfig.config as ImageGenerationConfig;
+              // 填充表单
+              if (config.prompt) setPrompt(config.prompt);
+              if (config.model) setModel(config.model);
+              if (config.resolution) setResolution(config.resolution);
+              if (config.aspectRatio) setAspectRatio(config.aspectRatio);
+              // 清除localStorage中的配置
+              localStorage.removeItem('makeSimilarConfig');
+            }
+          }
+        } catch (e) {
+          console.error('读取一键制作同款配置失败:', e);
+        }
+      } catch (error: any) {
+        console.error('加载模型列表失败:', error);
+        // 加载失败时使用默认模型
+        const defaultModels: ModelOption[] = [
+          { id: 'meji-flux-v2', name: 'Meji Flux v2.2 (超写实)' },
+          { id: 'meji-anime-v1', name: 'Meji Anime (二次元)' },
+          { id: 'meji-scifi-v3', name: 'Meji Sci-Fi (科幻设定)' }
+        ];
+        setModels(defaultModels);
+        setModel(prevModel => prevModel || 'meji-flux-v2');
+      } finally {
+        setLoadingModels(false);
+      }
+    };
+    
+    loadModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 只在组件挂载时执行一次
+
+  const handleGenerate = async () => {
+    // 验证提示词
     if (!prompt.trim()) return;
+    
     setGenerating(true);
-    setTimeout(() => {
-      const numImages = parseInt(quantity);
-      const newImages: AssetNode[] = Array.from({ length: numImages }, (_, i) => ({
+    try {
+      // 调用文生图API
+      const response = await generationAPI.textToImage({
+        prompt: prompt,
+        model: model,
+        aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
+        resolution: resolution,
+        quantity: parseInt(quantity),
+      });
+      
+      // 构建生成配置参数
+      const generationConfig: ImageGenerationConfig = {
+        prompt: prompt,
+        model: model,
+        resolution: resolution,
+        aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
+      };
+
+      // 将响应转换为AssetNode格式
+      const newImages: AssetNode[] = response.imageUrls.map((url, i) => ({
         id: `gen-${Date.now()}-${i}`,
         name: prompt.substring(0, 30) || 'Untitled Image',
         type: 'image',
         createdAt: Date.now(),
-        url: `https://picsum.photos/seed/${Math.random()}/800/800`,
+        url: url,
         prompt: prompt,
+        generationType: 'txt2img',
+        generationConfig: generationConfig,
       }));
+      
       setImages(newImages);
+    } catch (error: any) {
+      // 错误处理
+      alert('生成失败: ' + (error.message || '未知错误'));
+      console.error('文生图失败:', error);
+    } finally {
       setGenerating(false);
-    }, 3000);
+    }
   };
 
   const RatioIcon = ({ label }: { label: string }) => {
@@ -88,11 +188,20 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset }) => {
                 <select 
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="w-full bg-[#060813] border border-white/5 rounded-xl px-4 py-3 text-sm appearance-none outline-none focus:border-cyan-500 transition-all font-bold"
+                  disabled={loadingModels || models.length === 0}
+                  className="w-full bg-[#060813] border border-white/5 rounded-xl px-4 py-3 text-sm appearance-none outline-none focus:border-cyan-500 transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <option value="meji-flux-v2">Meji Flux v2.2 (超写实)</option>
-                  <option value="meji-anime-v1">Meji Anime (二次元)</option>
-                  <option value="meji-scifi-v3">Meji Sci-Fi (科幻设定)</option>
+                  {loadingModels ? (
+                    <option>加载中...</option>
+                  ) : models.length === 0 ? (
+                    <option>暂无可用模型</option>
+                  ) : (
+                    models.map((modelOption) => (
+                      <option key={modelOption.id} value={modelOption.id}>
+                        {modelOption.name}
+                      </option>
+                    ))
+                  )}
                 </select>
                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none" />
               </div>

@@ -2,36 +2,121 @@
 import React, { useState, useEffect } from 'react';
 import { Type, Layers, Video, PlaySquare, Mic2, Sparkles, ArrowRight, Zap, Heart, Eye } from 'lucide-react';
 import { PageType, Inspiration, AssetNode } from '../types';
+import { getActiveAds, MarketingAd } from '../api/marketing';
+import * as publishAPI from '../api/publish';
 
 interface HomeProps {
   onNavigate: (page: PageType) => void;
   onSelectWork: (work: Inspiration) => void;
+  userId?: number; // 用户ID
 }
 
-const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork }) => {
+const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
   const [activeSlide, setActiveSlide] = useState(0);
   const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
+  const [ads, setAds] = useState<MarketingAd[]>([]); // 广告数据
+  const [loadingAds, setLoadingAds] = useState(true); // 加载状态
+  const [activeTab, setActiveTab] = useState<'all' | 'image' | 'video'>('all'); // 灵感广场tab
+  const [inspirations, setInspirations] = useState<Inspiration[]>([]); // 灵感广场数据
+  const [loadingInspirations, setLoadingInspirations] = useState(true); // 加载灵感广场状态
   
-  const slides = [
+  // 从后台获取广告数据
+  useEffect(() => {
+    const loadAds = async () => {
+      try {
+        setLoadingAds(true);
+        // 不传siteCategory参数，获取所有站点的有效广告（后端会根据时间和激活状态过滤）
+        const adsData = await getActiveAds();
+        setAds(adsData);
+      } catch (error) {
+        console.error('加载广告失败:', error);
+        // 如果加载失败，使用空数组（不显示广告）
+        setAds([]);
+      } finally {
+        setLoadingAds(false);
+      }
+    };
+    
+    loadAds();
+  }, []);
+
+  // 将广告数据转换为slides格式（如果没有广告，使用默认slides）
+  const defaultSlides = [
     { title: "创意驱动，无限可能", desc: "Meji AI 研究院深度定制模型，为您提供全栈式 AI 创作解决方案。", img: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1600&q=80", tag: "Engine Upgrade v3.1.1" },
     { title: "文生图 2.2 震撼发布", desc: "更细腻的细节表现，更精准的语义理解，开启视觉艺术新篇章。", img: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=1600&q=80", tag: "New Model" },
     { title: "视频生成加速 50%", desc: "图生视频引擎全新升级，更快的渲染速度，更流畅的动态效果。", img: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=1600&q=80", tag: "Efficiency" },
     { title: "AI 研究院招募中", desc: "加入我们的创作者激励计划，共享 AI 时代的红利与技术前沿。", img: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&w=1600&q=80", tag: "Community" }
   ];
+  
+  // 将广告转换为slides格式（后端已按position排序）
+  const slides = ads.length > 0 
+    ? ads.map(ad => {
+        // 处理tags字段（后端返回的是JSON字符串，需要解析）
+        let tagArray: string[] = [];
+        if (ad.tags) {
+          if (typeof ad.tags === 'string') {
+            try {
+              tagArray = JSON.parse(ad.tags);
+            } catch (e) {
+              // 如果解析失败，尝试按逗号分割
+              tagArray = ad.tags.split(',').map(t => t.trim()).filter(t => t);
+            }
+          } else if (Array.isArray(ad.tags)) {
+            tagArray = ad.tags;
+          }
+        }
+        
+        return {
+          id: String(ad.id), // 确保id是字符串
+          title: ad.title,
+          desc: ad.summary || ad.title,
+          img: ad.imageUrl,
+          tag: tagArray.length > 0 ? tagArray[0] : "Featured",
+          linkType: ad.linkType,
+          linkUrl: ad.linkUrl,
+          richContent: ad.richContent
+        };
+      })
+    : defaultSlides;
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setActiveSlide(s => (s + 1) % slides.length);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
+    if (slides.length > 0) {
+      const timer = setInterval(() => {
+        setActiveSlide(s => (s + 1) % slides.length);
+      }, 5000);
+      return () => clearInterval(timer);
+    }
+  }, [slides.length]);
 
-  const toggleLike = (e: React.MouseEvent, id: number) => {
+  // 点赞/取消点赞
+  const toggleLike = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
-    const next = new Set(likedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setLikedIds(next);
+    
+    if (!userId) {
+      alert('请先登录');
+      return;
+    }
+    
+    try {
+      // 调用点赞API
+      const result = await publishAPI.toggleLike(userId, id);
+      
+      // 更新本地状态
+      const next = new Set(likedIds);
+      if (result.isLiked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      setLikedIds(next);
+      
+      // 更新灵感列表中的点赞数
+      setInspirations(prev => prev.map(item => 
+        item.id === id ? { ...item, likes: result.likeCount, isLiked: result.isLiked } : item
+      ));
+    } catch (error: any) {
+      alert('操作失败：' + (error.message || '未知错误'));
+    }
   };
 
   const hotTools = [
@@ -41,73 +126,180 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork }) => {
     { id: 'image-to-video', name: '图生视频', desc: '开启画面灵动时刻', icon: PlaySquare, color: 'from-[#2cc2f5]/10 to-[#ff2e8c]/20', borderColor: 'hover:border-white/20' },
   ];
 
-  const inspirations: Inspiration[] = [
-    { id: 1, title: '流体模拟 - 彩色液态碰撞', user: 'SimGuru', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=SimGuru', likes: 432, img: 'https://picsum.photos/seed/meji_1/800/1000', height: 'h-[320px]', desc: '基于物理引擎的流体模拟测试，展现了高饱和度液体在极宏观镜头下的运动轨迹。', prompt: 'Colorful liquid mixing simulation, fluid dynamics, macro shot, 8k, extremely detailed.' },
-    { id: 2, title: '极地之光 概念艺术', user: '创作者_88', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=88', likes: 890, img: 'https://picsum.photos/seed/meji_2/800/800', height: 'h-[260px]', desc: '北极光下的未来实验室场景。', prompt: 'Aurora borealis, futuristic lab, ice mountain, concept art, trending on artstation.' },
-    { id: 3, title: '赛博朋克 街景', user: '设计大师_X', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=X', likes: 2100, img: 'https://picsum.photos/seed/meji_3/800/1200', height: 'h-[400px]', desc: '雨后的霓虹灯街道。', prompt: 'Cyberpunk city street after rain, neon signs, reflect on puddle, cinematic lighting.', originalImageUrl: 'https://picsum.photos/seed/meji_3_orig/400/600' },
-    { id: 4, title: '深海巨兽', user: '未来探索者', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Explorer', likes: 450, img: 'https://picsum.photos/seed/meji_4/800/900', height: 'h-[300px]', desc: '深海中发光的未知生物。', prompt: 'Deep sea monster, bioluminescent, dark water, grand scale, photography.' },
-    { id: 5, title: '森林精灵', user: 'AI影师', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lens', likes: 670, img: 'https://picsum.photos/seed/meji_5/800/1100', height: 'h-[350px]', desc: '清晨雾气中的森林精灵少女。', prompt: 'Forest elf girl, morning mist, god rays, ethereal, hyper realistic.', originalImageUrl: 'https://picsum.photos/seed/meji_5_orig/400/550' },
-    { id: 6, title: '机械纪元', user: '光影魔术', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Magic', likes: 3200, img: 'https://picsum.photos/seed/meji_6/800/1300', height: 'h-[420px]', desc: '完全机械化的星球表面。', prompt: 'Mechanical planet surface, complex structures, space opera style.' },
-    { id: 7, title: '夏日海滨', user: '虚幻纪元', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Era', likes: 156, img: 'https://picsum.photos/seed/meji_7/800/850', height: 'h-[280px]', desc: '唯美的动漫风格海滩。', prompt: 'Summer beach, anime style, makoto shinkai aesthetic, crystal clear water.' },
-    { id: 8, title: '美透科技 未来舱', user: '美透专家', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Expert', likes: 98, img: 'https://picsum.photos/seed/meji_8/800/1050', height: 'h-[330px]', desc: '美透AI研究院最新设计的未来交互舱。', prompt: 'Futuristic interface pod, clean white aesthetic, glowing blue lines, scifi.' },
-  ];
+  // 从API加载灵感广场内容
+  useEffect(() => {
+    const loadInspirations = async () => {
+      try {
+        setLoadingInspirations(true);
+        // 获取发布内容列表
+        const contents = await publishAPI.getPublishedContents(activeTab);
+        
+        // 转换为Inspiration格式
+        const inspirationList: Inspiration[] = contents.map((content) => {
+          // 解析生成配置获取prompt和完整配置
+          let prompt = '';
+          let originalImageUrl: string | undefined = undefined;
+          let generationConfig: any = undefined;
+          
+          if (content.generationConfig) {
+            try {
+              const config = JSON.parse(content.generationConfig);
+              prompt = config.prompt || '';
+              generationConfig = config; // 保存完整的配置对象
+              
+              // 对于图生图/图生视频，获取参考图片
+              if (content.generationType === 'img2img' && config.referenceImages && config.referenceImages.length > 0) {
+                originalImageUrl = config.referenceImages[0];
+              } else if (content.generationType === 'img2video' && config.referenceImage) {
+                originalImageUrl = config.referenceImage;
+              }
+            } catch (e) {
+              console.error('解析生成配置失败:', e);
+            }
+          }
+          
+          // 根据内容类型设置高度（图片和视频可能需要不同的显示方式）
+          const height = content.type === 'video' ? 'h-[280px]' : 'h-[320px]';
+          
+          return {
+            id: content.id,
+            title: content.title,
+            user: content.userName,
+            avatar: content.userAvatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${content.userId}`,
+            likes: content.likeCount || 0,
+            img: content.thumbnail || content.contentUrl,
+            height: height,
+            desc: content.description,
+            prompt: prompt,
+            originalImageUrl: originalImageUrl,
+            type: content.type,
+            generationType: content.generationType as any,
+            generationConfig: generationConfig, // 保存完整的生成配置
+            publishedAt: content.publishedAt,
+            userId: content.userId,
+            contentUrl: content.contentUrl,
+            isLiked: false, // 稍后通过API获取点赞状态
+          };
+        });
+        
+        // 获取点赞状态（如果用户已登录）
+        if (userId) {
+          const likedSet = new Set<number>();
+          for (const inspiration of inspirationList) {
+            try {
+              const likeStatus = await publishAPI.getLikeStatus(userId, inspiration.id);
+              if (likeStatus.isLiked) {
+                likedSet.add(inspiration.id);
+                inspiration.isLiked = true;
+              }
+            } catch (e) {
+              console.error('获取点赞状态失败:', e);
+            }
+          }
+          setLikedIds(likedSet);
+        }
+        
+        setInspirations(inspirationList);
+      } catch (error) {
+        console.error('加载灵感广场失败:', error);
+        setInspirations([]);
+      } finally {
+        setLoadingInspirations(false);
+      }
+    };
+    
+    loadInspirations();
+  }, [activeTab, userId]);
+
+  // 处理广告点击
+  const handleAdClick = (slide: typeof slides[0]) => {
+    if ('linkType' in slide) {
+      // 如果是广告数据，处理跳转
+      if (slide.linkType === 'external' && slide.linkUrl) {
+        // 外部链接，打开新窗口
+        window.open(slide.linkUrl, '_blank');
+      } else if (slide.linkType === 'internal_rich' && slide.richContent) {
+        // 富文本内容，可以在这里打开模态框显示（暂时先不做处理）
+        console.log('富文本内容:', slide.richContent);
+      }
+    }
+    // 如果是默认slides，不处理（保持原有行为）
+  };
 
   return (
     <div className="space-y-14 pb-20">
       {/* Auto Carousel Banner */}
-      <section className="relative h-[22rem] rounded-[2.5rem] overflow-hidden group shadow-2xl">
-        {slides.map((slide, idx) => (
-          <div 
-            key={idx} 
-            className={`absolute inset-0 transition-opacity duration-1000 ${idx === activeSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}
-          >
-            <img src={slide.img} className="w-full h-full object-cover" alt={slide.title} />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#060813] via-[#060813]/60 to-transparent flex flex-col justify-center px-16">
-              <div className="flex items-center space-x-2 text-[#2cc2f5] mb-4 bg-[#2cc2f5]/10 w-fit px-3 py-1 rounded-full border border-[#2cc2f5]/20">
-                <Zap className="w-4 h-4 fill-current" />
-                <span className="text-[10px] font-black uppercase tracking-widest">{slide.tag}</span>
+      <section className="relative h-[16rem] sm:h-[20rem] lg:h-[22rem] rounded-2xl sm:rounded-[2.5rem] overflow-hidden group shadow-2xl">
+        {slides.length > 0 && !loadingAds ? (
+          slides.map((slide, idx) => (
+            <div 
+              key={'id' in slide ? slide.id : idx}
+              className={`absolute inset-0 transition-opacity duration-1000 ${idx === activeSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'} ${'linkType' in slide ? 'cursor-pointer' : ''}`}
+              onClick={() => 'linkType' in slide && handleAdClick(slide)}
+            >
+              <img src={slide.img} className="w-full h-full object-cover" alt={slide.title} />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#060813] via-[#060813]/60 to-transparent flex flex-col justify-center px-4 sm:px-8 lg:px-16">
+                <div className="flex items-center space-x-2 text-[#2cc2f5] mb-3 sm:mb-4 bg-[#2cc2f5]/10 w-fit px-2 sm:px-3 py-1 rounded-full border border-[#2cc2f5]/20">
+                  <Zap className="w-3 h-3 sm:w-4 sm:h-4 fill-current" />
+                  <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest">{slide.tag}</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black mb-2 sm:mb-3 tracking-tighter text-white">{slide.title}</h2>
+                <p className="text-gray-300 text-sm sm:text-base lg:text-lg mb-4 sm:mb-6 lg:mb-8 max-w-xl leading-relaxed">{slide.desc}</p>
+                <button 
+                  className="w-fit flex items-center space-x-2 sm:space-x-3 brand-gradient px-4 sm:px-6 lg:px-8 py-2 sm:py-2.5 lg:py-3 rounded-xl sm:rounded-2xl font-black hover:scale-105 transition-all shadow-xl glow-pink text-sm sm:text-base"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if ('linkType' in slide) {
+                      handleAdClick(slide);
+                    }
+                  }}
+                >
+                  <span className="text-white">立即体验</span>
+                  <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                </button>
               </div>
-              <h2 className="text-5xl font-black mb-3 tracking-tighter text-white">{slide.title}</h2>
-              <p className="text-gray-300 text-lg mb-8 max-w-xl leading-relaxed">{slide.desc}</p>
-              <button className="w-fit flex items-center space-x-3 brand-gradient px-8 py-3 rounded-2xl font-black hover:scale-105 transition-all shadow-xl glow-pink">
-                <span className="text-white">立即体验</span>
-                <ArrowRight className="w-5 h-5 text-white" />
-              </button>
             </div>
+          ))
+        ) : (
+          // 加载中的占位符（可以显示默认的slides或加载动画）
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-gray-500">加载中...</div>
           </div>
-        ))}
+        )}
         {/* Indicators */}
-        <div className="absolute bottom-6 right-12 z-20 flex space-x-3">
-          {slides.map((_, idx) => (
-            <button 
-              key={idx} 
-              onClick={() => setActiveSlide(idx)}
-              className={`h-1.5 rounded-full transition-all duration-300 ${idx === activeSlide ? 'w-8 brand-gradient' : 'w-2 bg-white/20'}`}
-            />
-          ))}
-        </div>
+        {slides.length > 0 && !loadingAds && (
+          <div className="absolute bottom-4 sm:bottom-6 right-4 sm:right-8 lg:right-12 z-20 flex space-x-2 sm:space-x-3">
+            {slides.map((_, idx) => (
+              <button 
+                key={idx} 
+                onClick={() => setActiveSlide(idx)}
+                className={`h-1.5 rounded-full transition-all duration-300 ${idx === activeSlide ? 'w-8 brand-gradient' : 'w-2 bg-white/20'}`}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Hot Creation Center */}
       <section>
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center space-x-3">
-            <div className="w-1.5 h-8 brand-gradient rounded-full"></div>
-            <h3 className="text-2xl font-black tracking-tight">热门创作</h3>
+        <div className="flex items-center justify-between mb-6 sm:mb-8">
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="w-1 sm:w-1.5 h-6 sm:h-8 brand-gradient rounded-full"></div>
+            <h3 className="text-xl sm:text-2xl font-black tracking-tight">热门创作</h3>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {hotTools.map((tool) => (
             <button 
               key={tool.id}
               onClick={() => onNavigate(tool.id as PageType)}
-              className={`p-8 rounded-[2.5rem] border border-white/5 bg-gradient-to-br ${tool.color} ${tool.borderColor} text-left group transition-all duration-500 hover:-translate-y-2 relative overflow-hidden shadow-lg`}
+              className={`p-4 sm:p-6 lg:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5 bg-gradient-to-br ${tool.color} ${tool.borderColor} text-left group transition-all duration-500 hover:-translate-y-2 relative overflow-hidden shadow-lg`}
             >
-              <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center mb-6 group-hover:scale-110 group-hover:rotate-6 transition-transform">
-                <tool.icon className="w-7 h-7 text-white" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 rounded-xl sm:rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center mb-4 sm:mb-6 group-hover:scale-110 group-hover:rotate-6 transition-transform">
+                <tool.icon className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-white" />
               </div>
-              <h4 className="text-xl font-black mb-2 text-white">{tool.name}</h4>
-              <p className="text-sm text-gray-500 mb-6 font-medium">{tool.desc}</p>
+              <h4 className="text-lg sm:text-xl font-black mb-2 text-white">{tool.name}</h4>
+              <p className="text-xs sm:text-sm text-gray-500 mb-4 sm:mb-6 font-medium">{tool.desc}</p>
               <div className="flex items-center text-xs font-black tracking-widest text-white/40 group-hover:brand-text-gradient transition-colors uppercase">
                 <span>开始创作</span>
                 <ArrowRight className="w-3 h-3 ml-2" />
@@ -126,8 +318,51 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork }) => {
           </div>
         </div>
         
-        <div className="columns-1 sm:columns-2 lg:columns-4 gap-6 space-y-6">
-          {inspirations.map((item) => (
+        {/* Tab切换 */}
+        <div className="flex items-center space-x-4 mb-8">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-6 py-2 rounded-xl font-black transition-all ${
+              activeTab === 'all' 
+                ? 'brand-gradient text-white shadow-lg' 
+                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            全部
+          </button>
+          <button
+            onClick={() => setActiveTab('image')}
+            className={`px-6 py-2 rounded-xl font-black transition-all ${
+              activeTab === 'image' 
+                ? 'brand-gradient text-white shadow-lg' 
+                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            图片
+          </button>
+          <button
+            onClick={() => setActiveTab('video')}
+            className={`px-6 py-2 rounded-xl font-black transition-all ${
+              activeTab === 'video' 
+                ? 'brand-gradient text-white shadow-lg' 
+                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            视频
+          </button>
+        </div>
+        
+        {loadingInspirations ? (
+          <div className="flex items-center justify-center h-64 text-gray-500">
+            加载中...
+          </div>
+        ) : inspirations.length === 0 ? (
+          <div className="flex items-center justify-center h-64 text-gray-500">
+            暂无内容
+          </div>
+        ) : (
+          <div className="columns-1 sm:columns-2 lg:columns-4 gap-6 space-y-6">
+            {inspirations.map((item) => (
             <div 
               key={item.id} 
               onClick={() => onSelectWork(item)}
@@ -145,14 +380,15 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork }) => {
                     onClick={(e) => toggleLike(e, item.id)}
                     className="flex items-center space-x-1.5 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/5 hover:bg-white/10 transition-colors"
                   >
-                    <Heart className={`w-3 h-3 ${likedIds.has(item.id) ? 'text-[#ff2e8c] fill-[#ff2e8c]' : 'text-gray-400'}`} />
-                    <span className="text-[10px] text-white font-black">{item.likes + (likedIds.has(item.id) ? 1 : 0)}</span>
+                    <Heart className={`w-3 h-3 ${likedIds.has(item.id) || item.isLiked ? 'text-[#ff2e8c] fill-[#ff2e8c]' : 'text-gray-400'}`} />
+                    <span className="text-[10px] text-white font-black">{item.likes}</span>
                   </button>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <footer className="pt-20 border-t border-white/5 text-center">

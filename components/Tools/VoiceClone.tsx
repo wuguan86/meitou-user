@@ -1,18 +1,58 @@
 
 import React, { useState } from 'react';
 import { Mic2, Upload, FileText, ChevronDown, Play, Repeat, Zap } from 'lucide-react';
+import * as voiceAPI from '../../api/voice';
 
 const VoiceClone: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
+  const [fileData, setFileData] = useState<string | null>(null); // base64数据
   const [fileName, setFileName] = useState('');
   const [text, setText] = useState('');
   const [language, setLanguage] = useState('zh-CN');
+  const [cloning, setCloning] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (uploadedFile) {
       setFile(uploadedFile);
       setFileName(uploadedFile.name);
+      
+      // 读取文件为base64
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setFileData(ev.target?.result as string);
+      };
+      reader.readAsDataURL(uploadedFile);
+    }
+  };
+  
+  const handleClone = async () => {
+    // 验证输入
+    if (!fileData) {
+      alert('请上传参考音频');
+      return;
+    }
+    
+    if (!text.trim()) {
+      alert('请输入要合成的文本');
+      return;
+    }
+    
+    setCloning(true);
+    try {
+      // 调用声音克隆API
+      const response = await voiceAPI.cloneVoice({
+        audio: fileData,
+        text: text,
+        language: language
+      });
+      
+      setAudioUrl(response.audioUrl);
+    } catch (error: any) {
+      alert('克隆失败：' + (error.message || '未知错误'));
+    } finally {
+      setCloning(false);
     }
   };
 
@@ -70,19 +110,42 @@ const VoiceClone: React.FC = () => {
             </div>
           </div>
           
-          <button className="w-full brand-gradient py-5 rounded-[1.5rem] font-black text-xl shadow-2xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em]">
+          <button 
+            onClick={handleClone}
+            disabled={!fileData || !text.trim() || cloning}
+            className="w-full brand-gradient py-5 rounded-[1.5rem] font-black text-xl shadow-2xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em] disabled:opacity-30"
+          >
             <Zap className="w-5 h-5 fill-current" />
-            <span>开始制作</span>
+            <span>{cloning ? '克隆中...' : '开始制作'}</span>
           </button>
         </div>
         
         <div className="lg:col-span-8 flex flex-col">
            <p className="text-xs font-bold text-gray-500 uppercase mb-4 px-2">克隆结果</p>
-           <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[3rem] text-gray-700 bg-white/[0.01] p-10">
-             <Mic2 className="w-24 h-24 text-rose-400/20 mb-6" />
-             <p className="text-sm font-black text-gray-600 uppercase tracking-widest text-center">
-                克隆结果将在此处生成
-             </p>
+           <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[3rem] text-gray-700 bg-white/[0.01] p-10 min-h-[400px]">
+             {audioUrl ? (
+               <div className="w-full flex flex-col items-center space-y-4">
+                 <audio src={audioUrl} controls className="w-full max-w-md" />
+                 <button 
+                   onClick={() => {
+                     const a = document.createElement('a');
+                     a.href = audioUrl;
+                     a.download = 'cloned-voice.mp3';
+                     a.click();
+                   }}
+                   className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold transition-colors"
+                 >
+                   下载音频
+                 </button>
+               </div>
+             ) : (
+               <>
+                 <Mic2 className="w-24 h-24 text-rose-400/20 mb-6" />
+                 <p className="text-sm font-black text-gray-600 uppercase tracking-widest text-center">
+                   {cloning ? '正在克隆声音，请稍候...' : '克隆结果将在此处生成'}
+                 </p>
+               </>
+             )}
           </div>
         </div>
       </div>

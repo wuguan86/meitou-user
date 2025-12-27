@@ -1,7 +1,7 @@
 /**
  * 认证相关 API
  */
-import { post } from './index';
+import { post, get } from './index';
 
 // 发送验证码请求
 export interface SendCodeRequest {
@@ -23,6 +23,7 @@ export interface UserLoginResponse {
   phone: string; // 手机号
   email?: string; // 邮箱
   balance: number; // 积分余额
+  category?: string; // 站点分类：medical-医美类，ecommerce-电商类，life-生活服务类
 }
 
 // 发送验证码
@@ -39,6 +40,11 @@ export const loginByCode = async (request: CodeLoginRequest): Promise<UserLoginR
     localStorage.setItem('app_user_id', response.userId.toString());
   }
   return response;
+};
+
+// 获取当前用户信息
+export const getCurrentUser = async (): Promise<UserLoginResponse> => {
+  return get<UserLoginResponse>('/app/auth/me');
 };
 
 // 登出

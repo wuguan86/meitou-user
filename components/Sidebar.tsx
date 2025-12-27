@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Home, 
   FileBox, 
@@ -16,9 +16,11 @@ import {
   Plus,
   Heart,
   Eye,
-  MessageSquare
+  MessageSquare,
+  X
 } from 'lucide-react';
 import { PageType, User } from '../types';
+import { getVisibleMenus, MenuConfig } from '../api/menu';
 
 interface SidebarProps {
   currentPage: PageType;
@@ -27,13 +29,54 @@ interface SidebarProps {
   onLogout: () => void;
   onOpenProfile: () => void;
   onOpenRecharge: () => void;
+  isMobileOpen?: boolean; // 移动端是否打开
+  onMobileClose?: () => void; // 移动端关闭回调
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
-  currentPage, onNavigate, user, onLogout, onOpenProfile, onOpenRecharge 
+  currentPage, onNavigate, user, onLogout, onOpenProfile, onOpenRecharge,
+  isMobileOpen = false, onMobileClose
 }) => {
   const [toolsOpen, setToolsOpen] = useState(true);
   const [isCsHovered, setIsCsHovered] = useState(false);
+  const [menuConfigs, setMenuConfigs] = useState<MenuConfig[]>([]);
+
+  // 菜单代码到前端ID的映射
+  const codeToIdMap: Record<string, PageType> = {
+    'vision_analysis': 'image-analysis',
+    'txt2img': 'text-to-image',
+    'img2img': 'image-to-image',
+    'txt2video': 'text-to-video',
+    'img2video': 'image-to-video',
+    'voice_clone': 'voice-clone',
+  };
+
+  // 菜单代码到图标的映射
+  const codeToIconMap: Record<string, typeof Eye> = {
+    'vision_analysis': Eye,
+    'txt2img': Type,
+    'img2img': Layers,
+    'txt2video': Video,
+    'img2video': PlaySquare,
+    'voice_clone': Mic2,
+  };
+
+  // 从后端获取菜单配置（使用默认站点分类 'medical'，后续可以根据用户信息获取）
+  useEffect(() => {
+    const loadMenus = async () => {
+      try {
+        // TODO: 根据用户信息获取站点分类，目前使用默认值 'medical'
+        const siteCategory = 'medical';
+        const menus = await getVisibleMenus(siteCategory);
+        setMenuConfigs(menus);
+      } catch (error) {
+        console.error('加载菜单配置失败:', error);
+        // 如果加载失败，使用默认菜单
+        setMenuConfigs([]);
+      }
+    };
+    loadMenus();
+  }, []);
 
   const menuItems = [
     { id: 'home', name: '首页', icon: Home },
@@ -41,14 +84,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'manual', name: '使用手册', icon: BookOpen, external: true, url: 'https://ai.feishu.cn/wiki/JFJQwEzhQi26lZk5JMXcoKVYndc?from=from_copylink' },
   ];
 
-  const toolItems = [
-    { id: 'image-analysis', name: '图视分析', icon: Eye },
-    { id: 'text-to-image', name: '文生图', icon: Type },
-    { id: 'image-to-image', name: '图生图', icon: Layers },
-    { id: 'text-to-video', name: '文生视频', icon: Video },
-    { id: 'image-to-video', name: '图生视频', icon: PlaySquare },
-    { id: 'voice-clone', name: '声音克隆', icon: Mic2 },
-  ];
+  // 将后端菜单配置转换为前端菜单项
+  const toolItems = menuConfigs
+    .filter(menu => codeToIdMap[menu.code]) // 只包含已知的菜单代码
+    .map(menu => ({
+      id: codeToIdMap[menu.code] as PageType,
+      name: menu.label,
+      icon: codeToIconMap[menu.code] || Eye,
+    }));
   
   const handleNavClick = (item: (typeof menuItems)[0]) => {
     if (item.external && item.url) {
@@ -58,10 +101,51 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  // 处理导航点击，移动端点击后关闭侧边栏
+  const handleNav = (page: PageType) => {
+    onNavigate(page);
+    if (onMobileClose) {
+      onMobileClose();
+    }
+  };
+
   return (
-    <div className="w-[260px] bg-[#0d1121] flex flex-col h-full shrink-0 border-r border-white/5">
-      {/* Brand Header */}
-      <div className="p-6 flex items-center space-x-2">
+    <>
+      {/* 移动端遮罩层 */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+      {/* 侧边栏 */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        w-[260px] bg-[#0d1121] flex flex-col h-full shrink-0 border-r border-white/5
+        transform transition-transform duration-300 ease-in-out
+        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        {/* 移动端关闭按钮 */}
+        <div className="lg:hidden flex items-center justify-between p-4 border-b border-white/5">
+          <div className="flex items-center space-x-2">
+            <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
+              <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
+              <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                <Heart className="w-4 h-4 text-white fill-current" />
+              </div>
+            </div>
+            <span className="text-xl font-bold text-white tracking-tight">美迹AI</span>
+          </div>
+          <button
+            onClick={onMobileClose}
+            className="p-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        {/* Brand Header - 桌面端显示 */}
+        <div className="hidden lg:flex p-6 items-center space-x-2">
         <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
           <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
           <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
@@ -77,7 +161,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         {menuItems.map((item) => (
           <button
             key={item.id}
-            onClick={() => handleNavClick(item)}
+            onClick={() => {
+              handleNavClick(item);
+              if (onMobileClose && !item.external) {
+                onMobileClose();
+              }
+            }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${
               currentPage === item.id 
                 ? 'bg-white/5 text-white' 
@@ -106,7 +195,9 @@ const Sidebar: React.FC<SidebarProps> = ({
               {toolItems.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => onNavigate(item.id as PageType)}
+                  onClick={() => {
+                    handleNav(item.id as PageType);
+                  }}
                   className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${
                     currentPage === item.id 
                       ? 'brand-gradient text-white shadow-lg glow-pink' 
@@ -174,6 +265,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
     </div>
+    </>
   );
 };
 

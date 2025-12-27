@@ -1,26 +1,145 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Video, Sparkles, ChevronDown, Zap, ChevronUp } from 'lucide-react';
-import { AssetNode } from '../../types';
+import { AssetNode, VideoGenerationConfig } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
 import AssetPickerModal from '../modals/AssetPickerModal';
+import * as generationAPI from '../../api/generation';
 
 interface TextToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
 }
 
+// 模型选项接口
+interface ModelOption {
+  id: string; // 模型ID
+  name: string; // 模型显示名称
+}
 
 const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset }) => {
-  const [model, setModel] = useState('meji-video-turbo');
+  const [prompt, setPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [videos, setVideos] = useState<AssetNode[]>([]);
+  const [model, setModel] = useState('');
   const [duration, setDuration] = useState<string|number>('Auto');
   const [resolution, setResolution] = useState('Auto');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [ratiosOpen, setRatiosOpen] = useState(false);
   const [resolutionOpen, setResolutionOpen] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]); // 模型列表
+  const [loadingModels, setLoadingModels] = useState(true); // 加载模型列表状态
+
+  // 从后端加载模型列表
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        setLoadingModels(true);
+        // 获取所有平台的模型列表
+        const platformModels = await generationAPI.getTextToVideoModels();
+        
+        // 合并所有平台的模型到一个列表
+        const allModels: ModelOption[] = [];
+        platformModels.forEach(platform => {
+          platform.models.forEach(modelInfo => {
+            allModels.push({
+              id: modelInfo.id,
+              name: modelInfo.name
+            });
+          });
+        });
+        
+        setModels(allModels);
+        // 如果有模型，设置第一个为默认值
+        if (allModels.length > 0) {
+          setModel(allModels[0].id);
+        }
+        
+        // 检查是否有"一键制作同款"的配置参数
+        try {
+          const makeSimilarConfigStr = localStorage.getItem('makeSimilarConfig');
+          if (makeSimilarConfigStr) {
+            const makeSimilarConfig = JSON.parse(makeSimilarConfigStr);
+            if (makeSimilarConfig.generationType === 'txt2video' && makeSimilarConfig.config) {
+              const config = makeSimilarConfig.config as VideoGenerationConfig;
+              // 填充表单
+              if (config.prompt) setPrompt(config.prompt);
+              if (config.model) setModel(config.model);
+              if (config.resolution) setResolution(config.resolution);
+              if (config.aspectRatio) setAspectRatio(config.aspectRatio);
+              if (config.duration) setDuration(config.duration);
+              // 清除localStorage中的配置
+              localStorage.removeItem('makeSimilarConfig');
+            }
+          }
+        } catch (e) {
+          console.error('读取一键制作同款配置失败:', e);
+        }
+      } catch (error: any) {
+        console.error('加载模型列表失败:', error);
+        // 如果加载失败，使用默认模型
+        setModels([{ id: 'meji-video-turbo', name: 'Meji Video Turbo (高速)' }]);
+        setModel('meji-video-turbo');
+      } finally {
+        setLoadingModels(false);
+      }
+    };
+    loadModels();
+  }, []);
 
   const durations: (string|number)[] = ['Auto', 8, 10, 15, 20, 25];
   const resolutions = ['Auto', '270p', '720p', '1080p'];
   const ratios = [{ label: '16:9' }, { label: '9:16' }, { label: '3:2' }, { label: '2:3' }, { label: '1:1' }];
+
+  const handleGenerate = async () => {
+    // 验证提示词
+    if (!prompt.trim()) {
+      alert('请输入提示词');
+      return;
+    }
+    
+    setGenerating(true);
+    try {
+      // 准备请求参数
+      const request: generationAPI.TextToVideoRequest = {
+        prompt: prompt,
+        model: model,
+        aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
+        resolution: resolution === 'Auto' ? undefined : resolution,
+        duration: typeof duration === 'number' ? duration : undefined,
+      };
+      
+      // 调用文生视频API
+      const response = await generationAPI.textToVideo(request);
+      
+      // 构建生成配置参数
+      const generationConfig: VideoGenerationConfig = {
+        prompt: prompt,
+        model: model,
+        resolution: resolution === 'Auto' ? undefined : resolution,
+        aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
+        duration: typeof duration === 'number' ? duration : undefined,
+      };
+
+      // 将响应转换为AssetNode格式
+      const newVideo: AssetNode = {
+        id: `gen-${Date.now()}`,
+        name: prompt.substring(0, 30) || 'Untitled Video',
+        type: 'video',
+        createdAt: Date.now(),
+        url: response.videoUrl,
+        prompt: prompt,
+        generationType: 'txt2video',
+        generationConfig: generationConfig,
+      };
+      
+      setVideos([newVideo]);
+      onSelectAsset(newVideo);
+    } catch (error: any) {
+      alert('生成失败：' + (error.message || '未知错误'));
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const RatioIcon = ({ label }: { label: string }) => {
     const isPortrait = label.startsWith('9:') || label.startsWith('2:3');
@@ -51,11 +170,18 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset }) => {
                 <select 
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="w-full bg-[#060813] border border-white/5 rounded-xl px-4 py-3 text-sm appearance-none outline-none focus:border-[#2cc2f5] transition-all font-bold"
+                  disabled={loadingModels}
+                  className="w-full bg-[#060813] border border-white/5 rounded-xl px-4 py-3 text-sm appearance-none outline-none focus:border-[#2cc2f5] transition-all font-bold disabled:opacity-50"
                 >
-                  <option value="meji-video-turbo">Meji Video Turbo (高速)</option>
-                  <option value="meji-video-pro">Meji Video Pro (高画质)</option>
-                  <option value="meji-video-cinematic">Meji Cinematic (电影感)</option>
+                  {loadingModels ? (
+                    <option>加载中...</option>
+                  ) : models.length === 0 ? (
+                    <option>暂无可用模型</option>
+                  ) : (
+                    models.map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))
+                  )}
                 </select>
                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none" />
               </div>
@@ -128,23 +254,37 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset }) => {
             <div className="bg-[#060813] p-6 rounded-2xl border border-white/5">
               <p className="text-[10px] text-gray-600 font-bold uppercase mb-2 tracking-widest">提示词输入</p>
               <textarea 
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
                 placeholder="描述视频场景..."
                 className="w-full h-32 bg-transparent outline-none text-sm resize-none font-medium leading-relaxed"
               />
             </div>
           </div>
 
-          <button className="w-full brand-gradient py-5 rounded-[1.5rem] font-black text-xl shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em]">
+          <button 
+            onClick={handleGenerate}
+            disabled={!prompt.trim() || generating}
+            className="w-full brand-gradient py-5 rounded-[1.5rem] font-black text-xl shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em] disabled:opacity-30"
+          >
             <Sparkles className="w-5 h-5" />
-            <span>开始制作</span>
+            <span>{generating ? '生成中...' : '开始制作'}</span>
           </button>
         </div>
 
-        <div className="lg:col-span-8 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[3rem] text-gray-700 bg-white/[0.01]">
-          <Video className="w-24 h-24 text-[#6b48ff]/20 mb-6" />
-          <p className="text-sm font-black text-gray-600 uppercase tracking-widest px-20 text-center leading-relaxed">
-            该功能目前处于灰度测试中，即将全面开放。
-          </p>
+        <div className="lg:col-span-8 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[3rem] text-gray-700 bg-white/[0.01] min-h-[500px]">
+          {videos.length > 0 ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <video src={videos[0].url} controls className="max-w-full max-h-full" />
+            </div>
+          ) : (
+            <>
+              <Video className="w-24 h-24 text-[#6b48ff]/20 mb-6" />
+              <p className="text-sm font-black text-gray-600 uppercase tracking-widest px-20 text-center leading-relaxed">
+                {generating ? '正在生成视频，请稍候...' : '生成的视频将显示在这里'}
+              </p>
+            </>
+          )}
         </div>
       </div>
     </div>

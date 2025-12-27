@@ -2,6 +2,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { initDomainValidation } from './utils/domainValidator';
+
+// 初始化域名验证（允许三个业务域名访问）
+initDomainValidation();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

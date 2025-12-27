@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { Upload, Search, Image as ImageIcon, Video, FileText, Zap, ChevronRight, X, RefreshCcw } from 'lucide-react';
+import * as analysisAPI from '../../api/analysis';
 
 const ImageAnalysis: React.FC = () => {
   const [mode, setMode] = useState<'image' | 'video'>('image');
@@ -19,13 +20,33 @@ const ImageAnalysis: React.FC = () => {
     }
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!file) return;
     setAnalyzing(true);
-    setTimeout(() => {
-      setResult(`【深度${mode === 'image' ? '图像' : '视频'}解析报告】\n\n分析方向：${direction || '全维度解析'}\n\n当前素材展现出极高艺术造诣。构图遵循黄金分割法则，色温偏暖（约4500K），主要元素与背景形成了鲜明的空间层次感。技术层面上，光影追踪细腻，纹理精度达到了4K级别预览标准。若针对您输入的“${direction}”方向，我们发现画面在情感表达上极具张力，光影的明暗对比有效引导了视觉中心...`);
+    try {
+      if (mode === 'image') {
+        // 调用图片分析API
+        const response = await analysisAPI.analyzeImage({
+          image: file,
+          direction: direction || undefined,
+          model: model || undefined
+        });
+        setResult(response.result);
+      } else {
+        // 调用视频分析API
+        const response = await analysisAPI.analyzeVideo({
+          video: file,
+          direction: direction || undefined,
+          model: model || undefined
+        });
+        setResult(response.result);
+      }
+    } catch (error: any) {
+      alert('分析失败：' + (error.message || '未知错误'));
+      setResult('');
+    } finally {
       setAnalyzing(false);
-    }, 2000);
+    }
   };
 
   return (

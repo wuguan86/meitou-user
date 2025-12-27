@@ -47,15 +47,21 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [sendingCode, setSendingCode] = useState(false); // 发送验证码加载状态
   const [error, setError] = useState(''); // 错误提示
 
-  // 倒计时效果
+  // 倒计时效果 - 60秒后可以重新发送
   useEffect(() => {
     if (countdown > 0) {
-      const timer = setTimeout(() => {
-        setCountdown(countdown - 1);
+      // 使用 setInterval 每秒钟更新倒计时
+      const timer = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            return 0; // 倒计时结束，可以重新发送
+          }
+          return prev - 1;
+        });
       }, 1000);
-      return () => clearTimeout(timer);
+      return () => clearInterval(timer); // 清理定时器
     }
-  }, [countdown]);
+  }, [countdown]); // 当倒计时状态改变时重新设置定时器
 
   // 验证手机号格式
   const validatePhone = (phone: string): boolean => {
@@ -129,6 +135,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           points: response.balance || 0,
           phone: response.phone,
           email: response.email,
+          category: response.category, // 保存站点分类
           isLoggedIn: true,
         });
       } catch (err: any) {
@@ -224,7 +231,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     disabled={countdown > 0 || sendingCode || !validatePhone(phone)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-[#2cc2f5] font-black text-xs hover:text-white uppercase tracking-widest disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
                   >
-                    {countdown > 0 ? `${countdown}s` : sendingCode ? '发送中...' : '获取验证码'}
+                    {countdown > 0 ? `${countdown}秒后可重新发送` : sendingCode ? '发送中...' : '获取验证码'}
                   </button>
                 </div>
               ) : (
