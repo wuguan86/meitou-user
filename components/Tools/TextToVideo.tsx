@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { Video, Sparkles, ChevronDown, Zap, ChevronUp } from 'lucide-react';
 import { AssetNode, VideoGenerationConfig } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
-import AssetPickerModal from '../modals/AssetPickerModal';
+import AssetPickerModal from '../Modals/AssetPickerModal';
 import * as generationAPI from '../../api/generation';
 
 interface TextToVideoProps {
@@ -93,7 +94,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset }) => {
   const handleGenerate = async () => {
     // 验证提示词
     if (!prompt.trim()) {
-      alert('请输入提示词');
+      message.warning('请输入提示词');
       return;
     }
     
@@ -135,7 +136,8 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset }) => {
       setVideos([newVideo]);
       onSelectAsset(newVideo);
     } catch (error: any) {
-      alert('生成失败：' + (error.message || '未知错误'));
+      console.error('生成失败:', error);
+      message.error('生成失败：' + (error.message || '未知错误'));
     } finally {
       setGenerating(false);
     }

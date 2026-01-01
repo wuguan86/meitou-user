@@ -1,5 +1,5 @@
 
-export type PageType = 'home' | 'assets' | 'image-analysis' | 'text-to-image' | 'text-to-video' | 'image-to-image' | 'image-to-video' | 'voice-clone';
+export type PageType = 'home' | 'assets' | 'image-analysis' | 'text-to-image' | 'text-to-video' | 'image-to-image' | 'image-to-video' | 'voice-clone' | 'profile';
 
 export interface AssetNode {
   id: string;
@@ -7,9 +7,13 @@ export interface AssetNode {
   type: 'folder' | 'image' | 'audio' | 'video';
   children?: AssetNode[];
   url?: string;
+  thumbnail?: string;
+  generationRecordId?: number;
   createdAt: number;
   prompt?: string;
   originalImageUrl?: string;
+  // 生成参数（JSON字符串）
+  generationParams?: string;
   // 生成配置参数（用于发布）
   generationType?: 'txt2img' | 'img2img' | 'txt2video' | 'img2video';
   generationConfig?: ImageGenerationConfig | VideoGenerationConfig;
@@ -23,8 +27,11 @@ export interface User {
   phone?: string;
   email?: string;
   company?: string;
+  wechat?: string;
   password?: string;
   category?: string; // 站点分类：medical-医美类，ecommerce-电商类，life-生活服务类
+  createdAt?: string;
+  avatarUrl?: string;
 }
 
 export interface Inspiration {
@@ -67,4 +74,17 @@ export interface VideoGenerationConfig {
   aspectRatio?: string; // 尺寸比例（16:9/9:16等）
   duration?: number; // 视频时长（秒）
   referenceImage?: string; // 参考图片URL（图生视频特有）
+}
+
+export interface Site {
+  id: number;
+  name: string;
+  code: string;
+  domain: string;
+  category: number;
+  manual?: string; // 使用手册链接
+  status: number;
+  deleted: number;
+  createTime: string;
+  updateTime: string;
 }

@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ShieldCheck, Phone, Mail, Lock, Key, ChevronRight, X, Heart, Gift } from 'lucide-react';
-import { sendCode, loginByCode } from '../api/auth';
+import { User as UserIcon, ShieldCheck, Phone, Mail, Lock, Key, ChevronRight, X, Heart, Gift, Check } from 'lucide-react';
+import { sendCode, loginByCode, loginByPassword, setPassword as apiSetPassword } from '../api/auth';
+import { ApiError } from '../api';
+import type { User } from '../types';
 
 interface LoginProps {
   onLoginSuccess: (userData: Partial<User>) => void;
@@ -46,6 +48,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false); // 登录加载状态
   const [sendingCode, setSendingCode] = useState(false); // 发送验证码加载状态
   const [error, setError] = useState(''); // 错误提示
+  
+  // 设置密码相关状态
+  const [isSettingPassword, setIsSettingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [tempAuth, setTempAuth] = useState<{token: string, userId: string} | null>(null);
 
   // 倒计时效果 - 60秒后可以重新发送
   useEffect(() => {
@@ -93,6 +101,70 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  // 跳过设置密码
+  const handleSkipPassword = () => {
+    if (tempAuth && (tempAuth as any).userData) {
+      const response = (tempAuth as any).userData;
+      onLoginSuccess({
+        id: response.userId.toString(),
+        name: response.username || '创作官',
+        points: response.balance || 0,
+        phone: response.phone,
+        email: response.email,
+        category: response.category,
+        isLoggedIn: true,
+        createdAt: response.createdAt,
+        avatarUrl: response.avatarUrl,
+        company: response.company,
+        wechat: response.wechat,
+      });
+    }
+  };
+
+  // 处理设置密码提交
+  const handleSetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword.trim()) {
+      setError('请输入新密码');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('密码长度至少为6位');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('两次输入的密码不一致');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      await apiSetPassword({ password: newPassword });
+      
+      // 设置成功，完成登录流程
+      if (tempAuth && (tempAuth as any).userData) {
+          const response = (tempAuth as any).userData;
+          onLoginSuccess({
+            id: response.userId.toString(),
+            name: response.username || '创作官',
+            points: response.balance || 0,
+            phone: response.phone,
+            email: response.email,
+            category: response.category,
+            isLoggedIn: true,
+            createdAt: response.createdAt,
+            avatarUrl: response.avatarUrl,
+            company: response.company,
+            wechat: response.wechat,
+          });
+      }
+    } catch (err: any) {
+      setError(err.message || '设置密码失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 处理登录
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,6 +200,17 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           invitationCode: invitationCode.trim() || undefined,
         });
 
+        // 检查是否是新用户
+        if (response.isNewUser) {
+            setIsSettingPassword(true);
+            setTempAuth({
+                token: response.token,
+                userId: response.userId.toString(),
+                userData: response
+            } as any);
+            return;
+        }
+
         // 登录成功，调用回调函数
         onLoginSuccess({
           id: response.userId.toString(),
@@ -137,6 +220,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           email: response.email,
           category: response.category, // 保存站点分类
           isLoggedIn: true,
+          createdAt: response.createdAt,
+          avatarUrl: response.avatarUrl,
+          company: response.company,
+          wechat: response.wechat,
         });
       } catch (err: any) {
         setError(err.message || '登录失败，请重试');
@@ -144,8 +231,53 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         setLoading(false);
       }
     } else {
-      // 密码登录模式（暂未实现，可以后续扩展）
-      setError('密码登录功能暂未开放，请使用验证码登录');
+      if (!phone.trim()) {
+        setError('请输入手机号');
+        return;
+      }
+      if (!validatePhone(phone)) {
+        setError('手机号格式不正确');
+        return;
+      }
+      if (!password.trim()) {
+        setError('请输入密码');
+        return;
+      }
+      if (password.trim().length < 6) {
+        setError('密码长度至少为6位');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await loginByPassword({
+          phone: phone.trim(),
+          password: password.trim(),
+        });
+        onLoginSuccess({
+          id: response.userId.toString(),
+          name: response.username || '创作官',
+          points: response.balance || 0,
+          phone: response.phone,
+          email: response.email,
+          category: response.category,
+          isLoggedIn: true,
+          createdAt: response.createdAt,
+          avatarUrl: response.avatarUrl,
+          company: response.company,
+          wechat: response.wechat,
+        });
+      } catch (err: any) {
+        if (err instanceof ApiError) {
+          if (err.code === 1001) {
+             // 密码错误，清空密码框
+             setPassword('');
+          }
+        }
+        setError(err.message || '登录失败，请重试');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -166,124 +298,195 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <p className="brand-text-gradient font-bold tracking-widest text-[13px]">赋能美的无限可能</p>
           </div>
 
-          <div className="flex bg-white/5 p-1 rounded-2xl mb-8">
-            <button 
-              onClick={() => setLoginMode('code')}
-              className={`flex-1 py-3 text-sm font-black rounded-xl transition-all ${loginMode === 'code' ? 'bg-white/10 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              验证码
-            </button>
-            <button 
-              onClick={() => setLoginMode('password')}
-              className={`flex-1 py-3 text-sm font-black rounded-xl transition-all ${loginMode === 'password' ? 'bg-white/10 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              密码登录
-            </button>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-5">
-            {/* 错误提示 */}
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-3 text-red-400 text-sm font-bold">
-                {error}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {/* 手机号输入 */}
-              <div className="relative group">
-                <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
-                  <Phone className="w-5 h-5" />
-                </div>
-                <input 
-                  type="text" 
-                  placeholder="手机号" 
-                  value={phone}
-                  onChange={(e) => {
-                    setPhone(e.target.value);
-                    setError(''); // 清除错误提示
-                  }}
-                  maxLength={11}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
-                />
+          {isSettingPassword ? (
+            // 设置密码界面
+            <form onSubmit={handleSetPasswordSubmit} className="space-y-5">
+              <div className="text-center mb-6">
+                <h2 className="text-xl font-bold text-white mb-2">欢迎加入</h2>
+                <p className="text-gray-400 text-sm">为了您的账号安全，请设置登录密码</p>
               </div>
 
-              {/* 验证码或密码输入 */}
-              {loginMode === 'code' ? (
-                <div className="relative group">
-                  <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
-                    <Key className="w-5 h-5" />
-                  </div>
-                  <input 
-                    type="text" 
-                    placeholder="输入验证码" 
-                    value={code}
-                    onChange={(e) => {
-                      setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); // 只允许数字，最多6位
-                      setError(''); // 清除错误提示
-                    }}
-                    maxLength={6}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-32 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
-                  />
-                  <button 
-                    type="button" 
-                    onClick={handleSendCode}
-                    disabled={countdown > 0 || sendingCode || !validatePhone(phone)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#2cc2f5] font-black text-xs hover:text-white uppercase tracking-widest disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {countdown > 0 ? `${countdown}秒后可重新发送` : sendingCode ? '发送中...' : '获取验证码'}
-                  </button>
+              {/* 错误提示 */}
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-3 text-red-400 text-sm font-bold">
+                  {error}
                 </div>
-              ) : (
+              )}
+
+              <div className="space-y-4">
                 <div className="relative group">
                   <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
                     <Lock className="w-5 h-5" />
                   </div>
                   <input 
                     type="password" 
-                    placeholder="输入密码" 
-                    value={password}
+                    placeholder="设置新密码 (至少6位)" 
+                    value={newPassword}
                     onChange={(e) => {
-                      setPassword(e.target.value);
-                      setError(''); // 清除错误提示
+                      setNewPassword(e.target.value);
+                      setError('');
                     }}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
                   />
                 </div>
-              )}
-
-              {/* 邀请码输入 */}
-              <div className="relative group">
-                <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-pink-400 transition-colors">
-                  <Gift className="w-5 h-5" />
+                
+                <div className="relative group">
+                  <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
+                    <Check className="w-5 h-5" />
+                  </div>
+                  <input 
+                    type="password" 
+                    placeholder="确认新密码" 
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setError('');
+                    }}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
+                  />
                 </div>
-                <input 
-                  type="text" 
-                  placeholder="邀请码 (选填)" 
-                  value={invitationCode}
-                  onChange={(e) => setInvitationCode(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-pink-400/50 transition-all text-white placeholder:text-gray-600 font-bold"
-                />
               </div>
-            </div>
 
-            {/* 登录按钮 */}
-            <button 
-              type="submit"
-              disabled={loading}
-              className="w-full brand-gradient py-5 mt-4 rounded-2xl font-black text-white shadow-xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.2em] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? '登录中...' : '即 刻 开 始'}
-            </button>
+              <div className="flex justify-end mt-2">
+                <button 
+                  type="button"
+                  onClick={handleSkipPassword}
+                  className="text-[#6366f1] text-sm font-bold hover:text-[#818cf8] transition-colors"
+                >
+                  稍后设置&gt;&gt;&gt;
+                </button>
+              </div>
 
-            <div className="text-center text-[11px] px-2 pt-2">
-              <p className="text-gray-500 leading-relaxed font-bold">
-                登录即代表同意 
-                <span onClick={() => setActiveModal('service')} className="text-[#2cc2f5] hover:text-white cursor-pointer">《用户协议》</span> 和 
-                <span onClick={() => setActiveModal('privacy')} className="text-[#2cc2f5] hover:text-white cursor-pointer">《隐私政策》</span>
-              </p>
-            </div>
-          </form>
+              <button 
+                type="submit"
+                disabled={loading}
+                className="w-full brand-gradient py-5 mt-4 rounded-2xl font-black text-white shadow-xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.2em] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? '保存中...' : '完 成 设 置'}
+              </button>
+            </form>
+          ) : (
+            <>
+              <div className="flex bg-white/5 p-1 rounded-2xl mb-8">
+                <button 
+                  onClick={() => setLoginMode('code')}
+                  className={`flex-1 py-3 text-sm font-black rounded-xl transition-all ${loginMode === 'code' ? 'bg-white/10 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  验证码
+                </button>
+                <button 
+                  onClick={() => setLoginMode('password')}
+                  className={`flex-1 py-3 text-sm font-black rounded-xl transition-all ${loginMode === 'password' ? 'bg-white/10 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  密码登录
+                </button>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-5">
+                {/* 错误提示 */}
+                {error && (
+                  <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-3 text-red-400 text-sm font-bold">
+                    {error}
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  {/* 手机号输入 */}
+                  <div className="relative group">
+                    <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
+                      <Phone className="w-5 h-5" />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="手机号" 
+                      value={phone}
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                        setError(''); // 清除错误提示
+                      }}
+                      maxLength={11}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
+                    />
+                  </div>
+
+                  {/* 验证码或密码输入 */}
+                  {loginMode === 'code' ? (
+                    <div className="relative group">
+                      <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
+                        <Key className="w-5 h-5" />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="输入验证码" 
+                        value={code}
+                        onChange={(e) => {
+                          setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); // 只允许数字，最多6位
+                          setError(''); // 清除错误提示
+                        }}
+                        maxLength={6}
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-32 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
+                      />
+                      <button 
+                        type="button" 
+                        onClick={handleSendCode}
+                        disabled={countdown > 0 || sendingCode || !validatePhone(phone)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-[#2cc2f5] font-black text-xs hover:text-white uppercase tracking-widest disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {countdown > 0 ? `${countdown}秒后可重新发送` : sendingCode ? '发送中...' : '获取验证码'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative group">
+                      <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#2cc2f5] transition-colors">
+                        <Lock className="w-5 h-5" />
+                      </div>
+                      <input 
+                        type="password" 
+                        placeholder="输入密码" 
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          setError(''); // 清除错误提示
+                        }}
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-[#2cc2f5] transition-all text-white placeholder:text-gray-600 font-bold"
+                      />
+                    </div>
+                  )}
+
+                  {/* 邀请码输入 */}
+                  <div className="relative group">
+                    <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-pink-400 transition-colors">
+                      <Gift className="w-5 h-5" />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="邀请码 (选填)" 
+                      value={invitationCode}
+                      onChange={(e) => setInvitationCode(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 outline-none focus:border-pink-400/50 transition-all text-white placeholder:text-gray-600 font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* 登录按钮 */}
+                <button 
+                  type="submit"
+                  disabled={loading}
+                  className="w-full brand-gradient py-5 mt-4 rounded-2xl font-black text-white shadow-xl glow-pink hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.2em] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? '登录中...' : '即 刻 开 始'}
+                </button>
+
+                <div className="text-center text-[11px] px-2 pt-2">
+                  <p className="text-gray-500 leading-relaxed font-bold">
+                    登录即代表同意 
+                    <span onClick={() => setActiveModal('service')} className="text-[#2cc2f5] hover:text-white cursor-pointer">《用户协议》</span> 和 
+                    <span onClick={() => setActiveModal('privacy')} className="text-[#2cc2f5] hover:text-white cursor-pointer">《隐私政策》</span>
+                  </p>
+                </div>
+              </form>
+            </>
+          )}
         </div>
       </div>
 

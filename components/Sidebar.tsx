@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { PageType, User } from '../types';
 import { getVisibleMenus, MenuConfig } from '../api/menu';
+import * as customerServiceAPI from '../api/customerService';
+import { getCurrentSite } from '../api/site';
 
 interface SidebarProps {
   currentPage: PageType;
@@ -40,6 +42,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [toolsOpen, setToolsOpen] = useState(true);
   const [isCsHovered, setIsCsHovered] = useState(false);
   const [menuConfigs, setMenuConfigs] = useState<MenuConfig[]>([]);
+  const [csConfig, setCsConfig] = useState<customerServiceAPI.CustomerServiceConfig | null>(null);
+  const [manualUrl, setManualUrl] = useState('');
 
   // 菜单代码到前端ID的映射
   const codeToIdMap: Record<string, PageType> = {
@@ -61,27 +65,44 @@ const Sidebar: React.FC<SidebarProps> = ({
     'voice_clone': Mic2,
   };
 
-  // 从后端获取菜单配置（使用默认站点分类 'medical'，后续可以根据用户信息获取）
+  // 从后端获取菜单配置和客服配置
   useEffect(() => {
-    const loadMenus = async () => {
+    const loadData = async () => {
+      console.log('Sidebar: 开始加载数据...');
       try {
-        // TODO: 根据用户信息获取站点分类，目前使用默认值 'medical'
+        // TODO: 根据用户信息获取站点分类，目前使用默认值 'medical' (siteId=1)
         const siteCategory = 'medical';
         const menus = await getVisibleMenus(siteCategory);
         setMenuConfigs(menus);
+
+        // 加载站点信息
+        try {
+          const site = await getCurrentSite();
+          if (site && site.manual) {
+            setManualUrl(site.manual);
+          }
+        } catch (err) {
+          console.error('Sidebar: 获取站点信息失败:', err);
+        }
+
+        // 加载客服配置
+        const config = await customerServiceAPI.getConfig(1);
+        if (config) {
+          setCsConfig(config);
+        }
       } catch (error) {
-        console.error('加载菜单配置失败:', error);
+        console.error('加载配置失败:', error);
         // 如果加载失败，使用默认菜单
-        setMenuConfigs([]);
+        if (menuConfigs.length === 0) setMenuConfigs([]);
       }
     };
-    loadMenus();
+    loadData();
   }, []);
 
   const menuItems = [
     { id: 'home', name: '首页', icon: Home },
     { id: 'assets', name: '资产', icon: FileBox },
-    { id: 'manual', name: '使用手册', icon: BookOpen, external: true, url: 'https://ai.feishu.cn/wiki/JFJQwEzhQi26lZk5JMXcoKVYndc?from=from_copylink' },
+    ...(manualUrl ? [{ id: 'manual', name: '使用手册', icon: BookOpen, external: true, url: manualUrl }] : []),
   ];
 
   // 将后端菜单配置转换为前端菜单项
@@ -95,7 +116,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   
   const handleNavClick = (item: (typeof menuItems)[0]) => {
     if (item.external && item.url) {
-      window.open(item.url, '_blank');
+      let url = item.url;
+      // 如果链接没有协议头，自动添加 https://
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+      window.open(url, '_blank');
     } else {
       onNavigate(item.id as PageType);
     }
@@ -216,12 +242,12 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Bottom Profile Card */}
       <div className="p-4 bg-[#0d1121]">
         <div 
-          className="bg-[#151929] border border-white/5 rounded-2xl p-4 shadow-xl mb-4 cursor-pointer hover:bg-[#1f2333] transition-colors"
+          className={`bg-[#151929] border border-white/5 rounded-2xl p-4 shadow-xl mb-4 cursor-pointer hover:bg-[#1f2333] transition-colors ${currentPage === 'profile' ? 'ring-1 ring-[#2cc2f5] bg-[#1f2333]' : ''}`}
           onClick={onOpenProfile}
         >
           <div className="flex items-center space-x-3 mb-4">
             <img 
-              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 
+              src={user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 
               className="w-10 h-10 rounded-full border border-white/10" 
               alt="Avatar" 
             />
@@ -244,18 +270,24 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         </div>
-         <div className="relative" onMouseEnter={() => setIsCsHovered(true)} onMouseLeave={() => setIsCsHovered(false)}>
-            <button className="w-full flex items-center space-x-3 px-4 py-2 text-gray-500 hover:text-white transition-colors">
-                <MessageSquare className="w-4 h-4" />
-                <span className="text-sm font-bold">专属客服</span>
-            </button>
-            {isCsHovered && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-4 bg-[#1f2333] border border-white/10 rounded-2xl shadow-2xl flex flex-col items-center space-y-3 animate-in fade-in zoom-in-95 duration-200">
-                <img src="https://placehold.co/128x128/0d1121/ffffff.png?text=QR" alt="QR Code" className="w-32 h-32 rounded-lg" />
-                <p className="text-[10px] text-gray-400 font-bold text-center">添加您的专属客服经理</p>
-            </div>
-            )}
-        </div>
+        
+        {/* 客服部分 - 仅当有配置时显示 */}
+        {csConfig?.qrCodeUrl && (
+          <div className="relative" onMouseEnter={() => setIsCsHovered(true)} onMouseLeave={() => setIsCsHovered(false)}>
+              <button className="w-full flex items-center space-x-3 px-4 py-2 text-gray-500 hover:text-white transition-colors">
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="text-sm font-bold">专属客服</span>
+              </button>
+              {isCsHovered && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-4 bg-[#1f2333] border border-white/10 rounded-2xl shadow-2xl flex flex-col items-center space-y-3 animate-in fade-in zoom-in-95 duration-200 z-50">
+                  <img src={csConfig.qrCodeUrl} alt="QR Code" className="w-32 h-32 rounded-lg object-contain bg-white" />
+                  {csConfig.contactText && <p className="text-[10px] text-gray-400 font-bold text-center whitespace-pre-wrap">{csConfig.contactText}</p>}
+                  {!csConfig.contactText && <p className="text-[10px] text-gray-400 font-bold text-center">添加您的专属客服经理</p>}
+              </div>
+              )}
+          </div>
+        )}
+
         <button 
           onClick={onLogout}
           className="w-full flex items-center space-x-3 px-4 py-2 text-gray-500 hover:text-red-400 transition-colors"

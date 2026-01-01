@@ -13,22 +13,35 @@ export default defineConfig(({ mode }) => {
           'medical.example.com', // 医美类域名
           'ecommerce.example.com', // 电商类域名
           'life.example.com', // 生活服务类域名
+          'toutouyimei.com'
         ],
         // 配置代理，解决开发环境跨域问题
         proxy: {
-          '^/api/(app|admin)': {
-            target: 'http://localhost:8080', // 后端API地址
-            changeOrigin: true, // 改变请求头中的origin
-            secure: false, // 如果是https接口，需要配置这个参数
-            // 配置代理请求，设置X-Forwarded-Host头
-            // 使用configure函数在代理请求发送前修改请求头
+          '/api/app': {
+            target: 'http://localhost:8085',
+            changeOrigin: true,
+            secure: false,
+            timeout: 300000,
+            proxyTimeout: 300000,
             configure: (proxy, _options) => {
               proxy.on('proxyReq', (proxyReq, req, _res) => {
-                // 获取原始请求的Host头（包含域名和端口）
-                // 这是浏览器发送给Vite的原始Host头
                 const originalHost = req.headers.host;
                 if (originalHost) {
-                  // 将原始Host设置为X-Forwarded-Host，让后端能够获取原始域名
+                  proxyReq.setHeader('X-Forwarded-Host', originalHost);
+                }
+              });
+            },
+          },
+          '/api/admin': {
+            target: 'http://localhost:8085',
+            changeOrigin: true,
+            secure: false,
+            timeout: 300000,
+            proxyTimeout: 300000,
+            configure: (proxy, _options) => {
+              proxy.on('proxyReq', (proxyReq, req, _res) => {
+                const originalHost = req.headers.host;
+                if (originalHost) {
                   proxyReq.setHeader('X-Forwarded-Host', originalHost);
                 }
               });

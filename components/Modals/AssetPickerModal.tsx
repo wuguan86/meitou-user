@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { X, Folder, Image, Music, Video, ChevronRight, Home, Search } from 'lucide-react';
 import { AssetNode } from '../../types';
 import * as assetAPI from '../../api/asset';
@@ -54,7 +55,7 @@ const AssetPickerModal: React.FC<AssetPickerModalProps> = ({ isOpen, onClose, on
       setFolders(foldersData);
     } catch (error: any) {
       console.error('加载资产数据失败:', error);
-      alert('加载资产数据失败：' + (error.message || '未知错误'));
+      message.error('加载资产数据失败：' + (error.message || '未知错误'));
     } finally {
       setLoading(false);
     }

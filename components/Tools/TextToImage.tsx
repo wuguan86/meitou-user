@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { Send, Wand2, Download, RefreshCcw, Image as ImageIcon, Zap, ChevronDown, Check, ChevronUp } from 'lucide-react';
-import { AssetNode } from '../../types';
-import AssetPickerModal from '../modals/AssetPickerModal';
+import { AssetNode, ImageGenerationConfig } from '../../types';
+import AssetPickerModal from '../Modals/AssetPickerModal';
 import * as generationAPI from '../../api/generation';
 
 interface TextToImageProps {
@@ -133,7 +134,7 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset }) => {
       setImages(newImages);
     } catch (error: any) {
       // 错误处理
-      alert('生成失败: ' + (error.message || '未知错误'));
+      message.error('生成失败: ' + (error.message || '未知错误'));
       console.error('文生图失败:', error);
     } finally {
       setGenerating(false);

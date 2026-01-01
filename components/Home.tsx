@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { Type, Layers, Video, PlaySquare, Mic2, Sparkles, ArrowRight, Zap, Heart, Eye } from 'lucide-react';
 import { PageType, Inspiration, AssetNode } from '../types';
 import { getActiveAds, MarketingAd } from '../api/marketing';
 import * as publishAPI from '../api/publish';
+import RichTextModal from './Modals/RichTextModal';
 
 interface HomeProps {
   onNavigate: (page: PageType) => void;
@@ -16,9 +18,18 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
   const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
   const [ads, setAds] = useState<MarketingAd[]>([]); // 广告数据
   const [loadingAds, setLoadingAds] = useState(true); // 加载状态
-  const [activeTab, setActiveTab] = useState<'all' | 'image' | 'video'>('all'); // 灵感广场tab
+  // activeTab removed, default to 'all'
   const [inspirations, setInspirations] = useState<Inspiration[]>([]); // 灵感广场数据
   const [loadingInspirations, setLoadingInspirations] = useState(true); // 加载灵感广场状态
+  const [richTextModal, setRichTextModal] = useState<{
+    isOpen: boolean;
+    content: string;
+    title: string;
+  }>({
+    isOpen: false,
+    content: '',
+    title: ''
+  });
   
   // 从后台获取广告数据
   useEffect(() => {
@@ -42,10 +53,10 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
 
   // 将广告数据转换为slides格式（如果没有广告，使用默认slides）
   const defaultSlides = [
-    { title: "创意驱动，无限可能", desc: "Meji AI 研究院深度定制模型，为您提供全栈式 AI 创作解决方案。", img: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1600&q=80", tag: "Engine Upgrade v3.1.1" },
-    { title: "文生图 2.2 震撼发布", desc: "更细腻的细节表现，更精准的语义理解，开启视觉艺术新篇章。", img: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=1600&q=80", tag: "New Model" },
-    { title: "视频生成加速 50%", desc: "图生视频引擎全新升级，更快的渲染速度，更流畅的动态效果。", img: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=1600&q=80", tag: "Efficiency" },
-    { title: "AI 研究院招募中", desc: "加入我们的创作者激励计划，共享 AI 时代的红利与技术前沿。", img: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&w=1600&q=80", tag: "Community" }
+    { title: "创意驱动，无限可能", desc: "Meji AI 研究院深度定制模型，为您提供全栈式 AI 创作解决方案。", img: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1600&q=80", tags: ["Engine Upgrade v3.1.1"] },
+    { title: "文生图 2.2 震撼发布", desc: "更细腻的细节表现，更精准的语义理解，开启视觉艺术新篇章。", img: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=1600&q=80", tags: ["New Model"] },
+    { title: "视频生成加速 50%", desc: "图生视频引擎全新升级，更快的渲染速度，更流畅的动态效果。", img: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=1600&q=80", tags: ["Efficiency"] },
+    { title: "AI 研究院招募中", desc: "加入我们的创作者激励计划，共享 AI 时代的红利与技术前沿。", img: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&w=1600&q=80", tags: ["Community"] }
   ];
   
   // 将广告转换为slides格式（后端已按position排序）
@@ -71,7 +82,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
           title: ad.title,
           desc: ad.summary || ad.title,
           img: ad.imageUrl,
-          tag: tagArray.length > 0 ? tagArray[0] : "Featured",
+          tags: tagArray.length > 0 ? tagArray : ["Featured"],
           linkType: ad.linkType,
           linkUrl: ad.linkUrl,
           richContent: ad.richContent
@@ -93,7 +104,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
     e.stopPropagation();
     
     if (!userId) {
-      alert('请先登录');
+      message.warning('请先登录');
       return;
     }
     
@@ -115,7 +126,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
         item.id === id ? { ...item, likes: result.likeCount, isLiked: result.isLiked } : item
       ));
     } catch (error: any) {
-      alert('操作失败：' + (error.message || '未知错误'));
+      console.error('操作失败：', error);
     }
   };
 
@@ -132,7 +143,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
       try {
         setLoadingInspirations(true);
         // 获取发布内容列表
-        const contents = await publishAPI.getPublishedContents(activeTab);
+        const contents = await publishAPI.getPublishedContents('all');
         
         // 转换为Inspiration格式
         const inspirationList: Inspiration[] = contents.map((content) => {
@@ -158,8 +169,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
             }
           }
           
-          // 根据内容类型设置高度（图片和视频可能需要不同的显示方式）
-          const height = content.type === 'video' ? 'h-[280px]' : 'h-[320px]';
+          // 瀑布流布局，不设置固定高度
+          const height = '';
           
           return {
             id: content.id,
@@ -209,7 +220,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
     };
     
     loadInspirations();
-  }, [activeTab, userId]);
+  }, [userId]);
 
   // 处理广告点击
   const handleAdClick = (slide: typeof slides[0]) => {
@@ -219,8 +230,11 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
         // 外部链接，打开新窗口
         window.open(slide.linkUrl, '_blank');
       } else if (slide.linkType === 'internal_rich' && slide.richContent) {
-        // 富文本内容，可以在这里打开模态框显示（暂时先不做处理）
-        console.log('富文本内容:', slide.richContent);
+        setRichTextModal({
+          isOpen: true,
+          content: slide.richContent,
+          title: slide.title
+        });
       }
     }
     // 如果是默认slides，不处理（保持原有行为）
@@ -239,9 +253,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
             >
               <img src={slide.img} className="w-full h-full object-cover" alt={slide.title} />
               <div className="absolute inset-0 bg-gradient-to-r from-[#060813] via-[#060813]/60 to-transparent flex flex-col justify-center px-4 sm:px-8 lg:px-16">
-                <div className="flex items-center space-x-2 text-[#2cc2f5] mb-3 sm:mb-4 bg-[#2cc2f5]/10 w-fit px-2 sm:px-3 py-1 rounded-full border border-[#2cc2f5]/20">
-                  <Zap className="w-3 h-3 sm:w-4 sm:h-4 fill-current" />
-                  <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest">{slide.tag}</span>
+                <div className="flex flex-wrap gap-2 mb-3 sm:mb-4">
+                  {slide.tags.map((tag, i) => (
+                    <div key={i} className="flex items-center space-x-2 text-[#2cc2f5] bg-[#2cc2f5]/10 w-fit px-2 sm:px-3 py-1 rounded-full border border-[#2cc2f5]/20">
+                      <Zap className="w-3 h-3 sm:w-4 sm:h-4 fill-current" />
+                      <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest">{tag}</span>
+                    </div>
+                  ))}
                 </div>
                 <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black mb-2 sm:mb-3 tracking-tighter text-white">{slide.title}</h2>
                 <p className="text-gray-300 text-sm sm:text-base lg:text-lg mb-4 sm:mb-6 lg:mb-8 max-w-xl leading-relaxed">{slide.desc}</p>
@@ -319,38 +337,6 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
         </div>
         
         {/* Tab切换 */}
-        <div className="flex items-center space-x-4 mb-8">
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`px-6 py-2 rounded-xl font-black transition-all ${
-              activeTab === 'all' 
-                ? 'brand-gradient text-white shadow-lg' 
-                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            全部
-          </button>
-          <button
-            onClick={() => setActiveTab('image')}
-            className={`px-6 py-2 rounded-xl font-black transition-all ${
-              activeTab === 'image' 
-                ? 'brand-gradient text-white shadow-lg' 
-                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            图片
-          </button>
-          <button
-            onClick={() => setActiveTab('video')}
-            className={`px-6 py-2 rounded-xl font-black transition-all ${
-              activeTab === 'video' 
-                ? 'brand-gradient text-white shadow-lg' 
-                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            视频
-          </button>
-        </div>
         
         {loadingInspirations ? (
           <div className="flex items-center justify-center h-64 text-gray-500">
@@ -361,14 +347,38 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
             暂无内容
           </div>
         ) : (
-          <div className="columns-1 sm:columns-2 lg:columns-4 gap-6 space-y-6">
+          <div className="columns-1 sm:columns-2 lg:columns-4 gap-6">
             {inspirations.map((item) => (
             <div 
               key={item.id} 
               onClick={() => onSelectWork(item)}
-              className="break-inside-avoid relative group rounded-3xl overflow-hidden bg-[#0d1121] border border-white/5 shadow-xl transition-all hover:border-[#2cc2f5]/30 cursor-pointer"
+              className="break-inside-avoid relative group rounded-3xl overflow-hidden bg-[#0d1121] border border-white/5 shadow-xl transition-all hover:border-[#2cc2f5]/30 cursor-pointer mb-6"
             >
-              <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
+              {item.type === 'video' ? (
+                <div className="relative w-full">
+                  {item.img && item.img !== item.contentUrl ? (
+                    <img 
+                      src={item.img} 
+                      className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
+                      alt={item.title} 
+                    />
+                  ) : (
+                    <video 
+                      src={item.contentUrl} 
+                      className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                    />
+                  )}
+                  <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 flex items-center justify-center pointer-events-none">
+                    <PlaySquare className="w-4 h-4 text-white/90" />
+                  </div>
+                </div>
+              ) : (
+                <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
                 <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
                 <div className="flex items-center justify-between">
@@ -400,6 +410,15 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
           Copyright © 2025 Meitou Tech. Research Institute.
         </p>
       </footer>
+
+      {/* Rich Text Modal */}
+      {richTextModal.isOpen && (
+        <RichTextModal 
+          content={richTextModal.content} 
+          title={richTextModal.title}
+          onClose={() => setRichTextModal({...richTextModal, isOpen: false})} 
+        />
+      )}
     </div>
   );
 };

@@ -3,14 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { X, Send, CheckSquare, Square, Image as ImageIcon, FileText } from 'lucide-react';
 import { AssetNode, ImageGenerationConfig, VideoGenerationConfig } from '../../types';
 import * as publishAPI from '../../api/publish';
+import { message } from 'antd';
+import { publishGenerationRecord } from '../../api/generation';
 
 interface PublishModalProps {
   asset: AssetNode;
   onClose: () => void;
+  onSuccess?: () => void;
   userId?: number; // 用户ID
 }
 
-const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, userId }) => {
+const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, userId }) => {
   const [title, setTitle] = useState(asset.name);
   const [description, setDescription] = useState('');
   const [sharePrompt, setSharePrompt] = useState(true);
@@ -54,12 +57,12 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, userId }) =
 
   const handlePublish = async () => {
     if (!userId) {
-      alert('请先登录');
+      message.warning('请先登录');
       return;
     }
 
     if (!title.trim()) {
-      alert('请输入标题');
+      message.warning('请输入标题');
       return;
     }
 
@@ -75,8 +78,9 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, userId }) =
         generationConfig = getGenerationConfigJson();
       }
 
-      // 确定缩略图（对于图片使用原图，对于视频需要从视频URL提取，这里暂时使用内容URL）
-      const thumbnail = asset.type === 'image' ? asset.url : asset.url;
+      // 确定缩略图（如果有缩略图则使用，否则：图片使用原图，视频留空让后端或前端处理默认逻辑）
+      // 注意：对于视频，如果asset.thumbnail存在（如来自生成记录），则使用它；否则可能需要在Home组件中回退到contentUrl或自动截帧
+      const thumbnail = asset.thumbnail || (asset.type === 'image' ? asset.url : asset.url);
 
       // 发布内容
       await publishAPI.publishContent(userId, {
@@ -89,10 +93,23 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, userId }) =
         generationConfig: generationConfig,
       });
 
-      alert('发布成功！');
-      onClose();
+      // 标记生成记录为已发布
+      if (asset.generationRecordId) {
+          try {
+              await publishGenerationRecord(asset.generationRecordId);
+          } catch (e) {
+              console.error('标记已发布失败', e);
+          }
+      }
+
+      message.success('发布成功！');
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        onClose();
+      }
     } catch (error: any) {
-      alert('发布失败：' + (error.message || '未知错误'));
+      message.error('发布失败：' + (error.message || '未知错误'));
     } finally {
       setPublishing(false);
     }

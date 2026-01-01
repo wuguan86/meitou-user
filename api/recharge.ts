@@ -10,6 +10,7 @@ export interface RechargeConfigResponse {
   minAmount: number; // 最低充值金额（元）
   options: RechargeOption[]; // 充值选项列表
   allowCustom: boolean; // 是否启用自定义金额
+  enabledPaymentMethods?: string[]; // 启用的支付方式列表
 }
 
 // 充值选项
@@ -21,7 +22,7 @@ export interface RechargeOption {
 // 创建订单请求
 export interface RechargeOrderRequest {
   amount: number; // 充值金额（元）
-  paymentType: 'wechat' | 'alipay'; // 支付方式
+  paymentType: 'wechat' | 'alipay' | 'bank_transfer'; // 支付方式
 }
 
 // 创建订单响应

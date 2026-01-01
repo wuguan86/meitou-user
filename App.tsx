@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
+import { getCurrentUser, logout } from './api/auth';
 import Sidebar from './components/Sidebar';
 import Home from './components/Home';
 import Assets from './components/Assets';
@@ -10,6 +11,7 @@ import TextToVideo from './components/Tools/TextToVideo';
 import ImageToImage from './components/Tools/ImageToImage';
 import ImageToVideo from './components/Tools/ImageToVideo';
 import VoiceClone from './components/Tools/VoiceClone';
+import Profile from './components/Profile';
 // fix: Corrected import path casing to consistently use 'Modals' to resolve compilation errors.
 import ProfileModal from './components/Modals/ProfileModal';
 import RechargeModal from './components/Modals/RechargeModal';
@@ -19,6 +21,7 @@ import PublishModal from './components/Modals/PublishModal';
 import { PageType, User, Inspiration, AssetNode } from './types';
 
 const App: React.FC = () => {
+  const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<PageType>('home');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isRechargeOpen, setIsRechargeOpen] = useState(false);
@@ -38,11 +41,45 @@ const App: React.FC = () => {
     password: '••••••••'
   });
 
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkLoginStatus = async () => {
+      const token = localStorage.getItem('app_token');
+      if (token) {
+        try {
+          const userData = await getCurrentUser();
+          setUser(prev => ({
+            ...prev,
+            id: userData.userId.toString(),
+            name: userData.username || '创作官',
+            points: userData.balance || 0,
+            phone: userData.phone,
+            email: userData.email,
+            category: userData.category,
+            isLoggedIn: true,
+            createdAt: userData.createdAt,
+            avatarUrl: userData.avatarUrl,
+            company: userData.company,
+            wechat: userData.wechat,
+          }));
+        } catch (error) {
+          console.error('Failed to restore session:', error);
+          localStorage.removeItem('app_token');
+          localStorage.removeItem('app_user_id');
+        }
+      }
+      setIsLoading(false);
+    };
+    
+    checkLoginStatus();
+  }, []);
+
   const handleLoginSuccess = (userData: Partial<User>) => {
     setUser(prev => ({ ...prev, ...userData, isLoggedIn: true }));
   };
 
   const handleLogout = () => {
+    logout();
     setUser(prev => ({ ...prev, isLoggedIn: false }));
     setCurrentPage('home');
   };
@@ -56,6 +93,10 @@ const App: React.FC = () => {
       setIsPublishing(true);
     }
   };
+
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center bg-[#0b0d17] text-white">Loading...</div>;
+  }
 
   if (!user.isLoggedIn) {
     return <Login onLoginSuccess={handleLoginSuccess} />;
@@ -71,6 +112,18 @@ const App: React.FC = () => {
       case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} />;
       case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} />;
       case 'voice-clone': return <VoiceClone />;
+      case 'profile': return (
+        <Profile 
+          user={user} 
+          onUpdateUser={handleUpdateUser}
+          onSelectAsset={setSelectedAsset}
+          onPublish={(asset) => {
+            setSelectedAsset(asset);
+            setIsPublishing(true);
+          }}
+          onEditProfile={() => setIsProfileOpen(true)}
+        />
+      );
       default: return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} />;
     }
   };
@@ -90,7 +143,7 @@ const App: React.FC = () => {
         onNavigate={setCurrentPage} 
         user={user} 
         onLogout={handleLogout}
-        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenProfile={() => setCurrentPage('profile')}
         onOpenRecharge={() => setIsRechargeOpen(true)}
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
@@ -138,6 +191,10 @@ const App: React.FC = () => {
         <PublishModal
           asset={selectedAsset}
           onClose={() => setIsPublishing(false)}
+          onSuccess={() => {
+            setIsPublishing(false);
+            setSelectedAsset(null);
+          }}
           userId={user.id ? parseInt(user.id) : undefined}
         />
       )}

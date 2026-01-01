@@ -1,7 +1,7 @@
 /**
  * 用户资产相关 API
  */
-import { request, get } from './index';
+import { request, get, put, del, post, postForm } from './index';
 import { getApiBaseUrl } from './config';
 
 // 资产类型
@@ -98,17 +98,22 @@ export const uploadAsset = async (
  * @param userId 用户ID
  * @param folder 文件夹路径（可选）
  * @param type 类型筛选（可选：image、video、audio、all）
+ * @param ignoreFolder 是否忽略文件夹结构（可选，true表示返回所有层级的资产）
  * @returns 资产列表
  */
 export const getAssets = async (
   userId: number,
   folder?: string,
-  type: 'image' | 'video' | 'audio' | 'all' = 'all'
+  type: 'image' | 'video' | 'audio' | 'all' = 'all',
+  ignoreFolder?: boolean
 ): Promise<UserAsset[]> => {
   const params = new URLSearchParams();
   params.append('type', type);
   if (folder) {
     params.append('folder', folder);
+  }
+  if (ignoreFolder) {
+    params.append('ignoreFolder', 'true');
   }
 
   const API_BASE_URL = getApiBaseUrl();
@@ -154,6 +159,7 @@ export interface AssetFolder {
   userId: number;
   createdAt: string;
   updatedAt: string;
+  thumbnail?: string;
 }
 
 /**
@@ -302,35 +308,66 @@ export const updateFolder = async (
 };
 
 /**
- * 删除文件夹
+ * 更新资产信息（重命名、移动文件夹）
  * @param userId 用户ID
- * @param folderId 文件夹ID
+ * @param assetId 资产ID
+ * @param title 新标题（可选）
+ * @param folder 新文件夹路径（可选，空字符串表示根目录）
+ * @returns 更新后的资产
  */
-export const deleteFolder = async (userId: number, folderId: number): Promise<void> => {
+export const updateAsset = async (
+  userId: number,
+  assetId: number,
+  title?: string,
+  folder?: string
+): Promise<UserAsset> => {
   const API_BASE_URL = getApiBaseUrl();
   const token = localStorage.getItem('app_token');
   
   const headers: HeadersInit = {
+    'Content-Type': 'application/json',
     'X-User-Id': userId.toString(),
   };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}/app/folders/${folderId}`, {
-    method: 'DELETE',
+  const body: any = {};
+  if (title !== undefined) body.title = title;
+  if (folder !== undefined) body.folder = folder;
+
+  const response = await fetch(`${API_BASE_URL}/app/assets/${assetId}`, {
+    method: 'PUT',
     headers: headers,
+    body: JSON.stringify(body),
   });
 
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.message || '删除文件夹失败');
+    throw new Error(data.message || '更新资产失败');
   }
 
-  if (data.code !== undefined && data.code !== 200) {
-    throw new Error(data.message || '删除文件夹失败');
+  if (data.code !== undefined) {
+    if (data.code === 200) {
+      return data.data;
+    } else {
+      throw new Error(data.message || '更新资产失败');
+    }
   }
+
+  return data;
+};
+
+/**
+ * 删除文件夹
+ * @param userId 用户ID
+ * @param folderId 文件夹ID
+ */
+export const deleteFolder = async (userId: number, folderId: number): Promise<void> => {
+  return del<void>(`/app/folders/${folderId}`, {
+    headers: { 'X-User-Id': userId.toString() }
+  });
 };
 
 /**
@@ -372,61 +409,7 @@ export const getFolderPaths = async (userId: number): Promise<string[]> => {
   return data || [];
 };
 
-/**
- * 更新资产信息（重命名、移动文件夹等）
- * @param userId 用户ID
- * @param assetId 资产ID
- * @param title 新标题（可选）
- * @param folder 新文件夹路径（可选）
- * @returns 更新后的资产
- */
-export const updateAsset = async (
-  userId: number,
-  assetId: number,
-  title?: string,
-  folder?: string
-): Promise<UserAsset> => {
-  const API_BASE_URL = getApiBaseUrl();
-  const token = localStorage.getItem('app_token');
-  
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    'X-User-Id': userId.toString(),
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
-  const body: any = {};
-  if (title !== undefined) {
-    body.title = title;
-  }
-  if (folder !== undefined) {
-    body.folder = folder;
-  }
-
-  const response = await fetch(`${API_BASE_URL}/app/assets/${assetId}`, {
-    method: 'PUT',
-    headers: headers,
-    body: JSON.stringify(body),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || '更新资产失败');
-  }
-
-  if (data.code !== undefined) {
-    if (data.code === 200) {
-      return data.data;
-    } else {
-      throw new Error(data.message || '更新资产失败');
-    }
-  }
-
-  return data;
-};
 
 /**
  * 删除资产

@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { message } from 'antd';
 import { Upload, Search, Image as ImageIcon, Video, FileText, Zap, ChevronRight, X, RefreshCcw } from 'lucide-react';
 import * as analysisAPI from '../../api/analysis';
 
@@ -42,7 +43,8 @@ const ImageAnalysis: React.FC = () => {
         setResult(response.result);
       }
     } catch (error: any) {
-      alert('分析失败：' + (error.message || '未知错误'));
+      message.error('分析失败：' + (error.message || '未知错误'));
+      console.error('分析失败:', error);
       setResult('');
     } finally {
       setAnalyzing(false);

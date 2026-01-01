@@ -1,12 +1,29 @@
 
 import React, { useState, useEffect } from 'react';
-import { FolderPlus, Upload, Folder, Music, ChevronRight, Home, Trash2, Edit3, CheckSquare, Square, Video, X } from 'lucide-react';
+import { FolderPlus, Upload, Folder, Music, ChevronRight, Home, Trash2, Edit3, CheckSquare, Square, Video, X, Check } from 'lucide-react';
+import { message, Modal } from 'antd';
 import { AssetNode } from '../types';
 import { getAssets, getFolders, createFolder, updateFolder, deleteFolder, uploadAsset, deleteAsset, deleteAssets, updateAsset, UserAsset, AssetFolder } from '../api/asset';
 
 interface AssetsProps {
   onSelectAsset: (asset: AssetNode) => void;
 }
+
+const isValidFileType = (file: File) => {
+  const filename = file.name.toLowerCase();
+  const ext = filename.substring(filename.lastIndexOf('.') + 1);
+  
+  const validExtensions = [
+    // Images
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico', 'tiff',
+    // Videos
+    'mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm',
+    // Audio
+    'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a'
+  ];
+  
+  return validExtensions.includes(ext);
+};
 
 const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
   // 获取用户ID
@@ -37,6 +54,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
   const [isAddingFolder, setIsAddingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderParentPath, setNewFolderParentPath] = useState<string>('');
+  const [isCreating, setIsCreating] = useState(false);
   
   // 编辑状态
   const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
@@ -63,7 +81,6 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
       setAssets(data);
     } catch (error: any) {
       console.error('加载资产列表失败：', error);
-      alert('加载资产列表失败：' + (error.message || '未知错误'));
     } finally {
       setLoading(false);
     }
@@ -94,11 +111,161 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
     }
   };
 
+  // 拖拽状态
+  const [draggedAssetId, setDraggedAssetId] = useState<number | null>(null);
+
+  // 拖拽开始
+  const handleDragStart = (e: React.DragEvent, assetId: number) => {
+    e.dataTransfer.setData('text/plain', assetId.toString());
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedAssetId(assetId);
+  };
+
+  // 拖拽经过
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 如果是文件拖拽，显示 copy
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy';
+    } else {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  };
+
+  // 统一上传逻辑
+  const processUpload = async (files: File[], targetFolderPath?: string) => {
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const folderPath = targetFolderPath || undefined;
+      let successCount = 0;
+      let failCount = 0;
+      
+      for (const file of files) {
+        // 校验文件类型
+        if (!isValidFileType(file)) {
+          message.error(`文件 ${file.name} 类型不支持，仅支持图片、视频、音频`);
+          failCount++;
+          continue;
+        }
+
+        try {
+          await uploadAsset(
+            file,
+            userId,
+            undefined, // 使用默认标题（文件名）
+            undefined, // 自动判断类型
+            'life', // 默认分类
+            folderPath
+          );
+          successCount++;
+        } catch (err) {
+          console.error(`上传文件 ${file.name} 失败:`, err);
+          message.error(`上传文件 ${file.name} 失败`);
+          failCount++;
+        }
+      }
+      
+      if (successCount > 0) {
+        message.success(`成功上传 ${successCount} 个文件` + (failCount > 0 ? `，${failCount} 个失败` : ''));
+        // 重新加载列表
+        await loadAssets();
+      }
+      
+      // 关闭选择器（如果是从选择器触发的）
+      setShowFolderSelector(false);
+      setPendingFiles([]);
+      setSelectedFolderPath('');
+    } catch (error: any) {
+      console.error('上传过程出错：', error);
+      message.error('上传出错：' + (error.message || '未知错误'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 拖拽放下
+  const handleDrop = async (e: React.DragEvent, targetFolder: AssetFolder) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // 1. 处理文件上传（从外部拖入文件）
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files: File[] = Array.from(e.dataTransfer.files);
+      await processUpload(files, targetFolder.folderPath);
+      return;
+    }
+
+    // 2. 处理应用内资产移动
+    const assetIdStr = e.dataTransfer.getData('text/plain');
+    if (!assetIdStr) return;
+
+    const assetId = parseInt(assetIdStr, 10);
+    if (isNaN(assetId)) return;
+
+    // 检查是否拖拽的是文件夹（暂不支持文件夹拖拽）
+    if (assetIdStr.startsWith('folder')) return;
+    
+    // 检查目标文件夹是否是当前所在的文件夹
+    if (targetFolder.folderPath === currentFolderPath) return;
+
+    setDraggedAssetId(null);
+
+    try {
+      await updateAsset(userId, assetId, undefined, targetFolder.folderPath);
+      message.success(`已移动到 ${targetFolder.name}`);
+      // 刷新列表
+      loadAssets();
+      loadFolders();
+    } catch (error: any) {
+      console.error('移动资产失败：', error);
+      message.error('移动失败：' + (error.message || '未知错误'));
+    }
+  };
+
+  // 容器拖拽经过（支持拖拽到空白处）
+  const handleContainerDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 只有文件才允许在容器释放（上传到当前目录）
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy';
+    } else {
+      e.dataTransfer.dropEffect = 'none';
+    }
+  };
+
+  // 容器拖拽放下（上传到当前目录）
+  const handleContainerDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // 如果是文件拖拽，上传到当前目录
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files: File[] = Array.from(e.dataTransfer.files);
+      await processUpload(files, currentFolderPath || undefined);
+    }
+  };
+
   // 初始加载
   useEffect(() => {
     loadAssets();
     loadFolders();
     loadAllFolders(); // 加载所有文件夹用于选择
+
+    // 防止浏览器默认打开文件
+    const preventDefault = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    
+    window.addEventListener('dragover', preventDefault);
+    window.addEventListener('drop', preventDefault);
+    
+    return () => {
+      window.removeEventListener('dragover', preventDefault);
+      window.removeEventListener('drop', preventDefault);
+    };
   }, [userId, currentFolderPath, activeAssetType]);
 
   // 将UserAsset转换为AssetNode
@@ -120,6 +287,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
       name: folder.name,
       type: 'folder',
       createdAt: new Date(folder.createdAt).getTime(),
+      thumbnail: folder.thumbnail,
     };
   };
 
@@ -165,11 +333,20 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
 
   // 创建文件夹
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim() || !userId) return;
+    if (!userId) {
+      message.warning('请先登录');
+      return;
+    }
+    if (!newFolderName.trim()) {
+      message.warning('请输入文件夹名称');
+      return;
+    }
 
+    setIsCreating(true);
     try {
       const parentPath = newFolderParentPath.trim() || undefined;
       await createFolder(userId, newFolderName.trim(), parentPath);
+      message.success('创建文件夹成功');
       await loadFolders();
       await loadAllFolders(); // 重新加载所有文件夹
       setNewFolderName('');
@@ -177,7 +354,9 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
       setIsAddingFolder(false);
     } catch (error: any) {
       console.error('创建文件夹失败：', error);
-      alert('创建文件夹失败：' + (error.message || '未知错误'));
+      message.error('创建文件夹失败：' + (error.message || '未知错误'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -193,35 +372,8 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
 
   // 确认上传（在选择文件夹后）
   const handleConfirmUpload = async () => {
-    if (pendingFiles.length === 0 || !userId) return;
-
-    setLoading(true);
-    try {
-      const folderPath = selectedFolderPath.trim() || undefined;
-      for (const file of pendingFiles) {
-        await uploadAsset(
-          file,
-          userId,
-          undefined, // 使用默认标题（文件名）
-          undefined, // 自动判断类型
-          'life', // 默认分类
-          folderPath
-        );
-      }
-      
-      // 重新加载列表
-      await loadAssets();
-      
-      // 关闭选择器
-      setShowFolderSelector(false);
-      setPendingFiles([]);
-      setSelectedFolderPath('');
-    } catch (error: any) {
-      console.error('上传失败：', error);
-      alert('上传失败：' + (error.message || '未知错误'));
-    } finally {
-      setLoading(false);
-    }
+    if (pendingFiles.length === 0) return;
+    await processUpload(pendingFiles, selectedFolderPath.trim() || undefined);
   };
 
   // 取消上传
@@ -233,51 +385,67 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
 
   // 删除资产
   const handleDeleteAsset = async (id: number) => {
-    if (!confirm('确认删除此资产吗？')) return;
-    if (!userId) return;
-
-    try {
-      await deleteAsset(userId, id);
-      await loadAssets();
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    } catch (error: any) {
-      console.error('删除失败：', error);
-      alert('删除失败：' + (error.message || '未知错误'));
-    }
+    Modal.confirm({
+      title: '确认删除',
+      content: '确认删除此资产吗？',
+      onOk: async () => {
+        if (!userId) return;
+        try {
+          await deleteAsset(userId, id);
+          await loadAssets();
+          setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          message.success('删除成功');
+        } catch (error: any) {
+          console.error('删除失败：', error);
+          message.error('删除失败：' + (error.message || '未知错误'));
+        }
+      }
+    });
   };
 
   // 删除文件夹
   const handleDeleteFolder = async (folderId: number) => {
-    if (!confirm('确认删除此文件夹吗？（文件夹内的资产不会被删除，但需要手动移动）')) return;
-    if (!userId) return;
-
-    try {
-      await deleteFolder(userId, folderId);
-      await loadFolders();
-      await loadAllFolders(); // 重新加载所有文件夹
-    } catch (error: any) {
-      console.error('删除文件夹失败：', error);
-      alert('删除文件夹失败：' + (error.message || '未知错误'));
-    }
+    Modal.confirm({
+      title: '确认删除',
+      content: '确认删除此文件夹吗？（文件夹内的资产不会被删除，但需要手动移动）',
+      onOk: async () => {
+        if (!userId) return;
+        try {
+          await deleteFolder(userId, folderId);
+          await loadFolders();
+          await loadAllFolders(); // 重新加载所有文件夹
+          message.success('删除成功');
+        } catch (error: any) {
+          console.error('删除文件夹失败：', error);
+          message.error('删除失败：' + (error.message || '未知错误'));
+        }
+      }
+    });
   };
 
   // 批量删除资产
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0 || !userId) return;
-    if (!confirm(`确认删除选中的 ${selectedIds.size} 项资产吗？`)) return;
-
-    try {
-      await deleteAssets(userId, Array.from(selectedIds));
-      await loadAssets();
-      setSelectedIds(new Set());
-    } catch (error: any) {
-      console.error('批量删除失败：', error);
-      alert('批量删除失败：' + (error.message || '未知错误'));
-    }
+    
+    Modal.confirm({
+      title: '确认删除',
+      content: `确认删除选中的 ${selectedIds.size} 项资产吗？`,
+      onOk: async () => {
+        try {
+          await deleteAssets(userId, Array.from(selectedIds));
+          await loadAssets();
+          setSelectedIds(new Set());
+          message.success('批量删除成功');
+        } catch (error: any) {
+          console.error('批量删除失败：', error);
+          message.error('批量删除失败：' + (error.message || '未知错误'));
+        }
+      }
+    });
   };
 
   // 开始重命名资产
@@ -305,13 +473,19 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
       setEditingAssetId(null);
     } catch (error: any) {
       console.error('重命名失败：', error);
-      alert('重命名失败：' + (error.message || '未知错误'));
+      message.error('重命名失败：' + (error.message || '未知错误'));
     }
   };
 
   // 保存重命名文件夹
   const saveRenameFolder = async () => {
-    if (!editName.trim() || editingFolderId === null || !userId) {
+    
+    if (!editName.trim()) {
+      message.warning('文件夹名称不能为空');
+      return;
+    }
+    
+    if (editingFolderId === null || !userId) {
       setEditingFolderId(null);
       return;
     }
@@ -321,9 +495,10 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
       await loadFolders();
       await loadAllFolders(); // 重新加载所有文件夹
       setEditingFolderId(null);
+      message.success('重命名成功');
     } catch (error: any) {
       console.error('重命名文件夹失败：', error);
-      alert('重命名文件夹失败：' + (error.message || '未知错误'));
+      message.error('重命名失败：' + (error.message || '未知错误'));
     }
   };
 
@@ -372,7 +547,11 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
   };
 
   return (
-    <div className="space-y-8 pb-20 animate-in fade-in duration-500">
+    <div 
+      className="space-y-8 pb-20 animate-in fade-in duration-500 min-h-[calc(100vh-100px)]"
+      onDragOver={handleContainerDragOver}
+      onDrop={handleContainerDrop}
+    >
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black mb-3">我的资产库</h2>
@@ -529,15 +708,17 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
             <div className="flex items-center space-x-4 mt-6">
               <button 
                 onClick={() => { setIsAddingFolder(false); setNewFolderName(''); setNewFolderParentPath(''); }}
-                className="flex-1 bg-white/5 hover:bg-white/10 px-5 py-3 rounded-xl text-xs font-black transition-all border border-white/5 uppercase tracking-widest"
+                disabled={isCreating}
+                className="flex-1 bg-white/5 hover:bg-white/10 px-5 py-3 rounded-xl text-xs font-black transition-all border border-white/5 uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 取消
               </button>
               <button 
                 onClick={handleCreateFolder}
-                className="flex-1 brand-gradient px-5 py-3 rounded-xl text-xs font-black transition-all hover:scale-105 shadow-lg glow-cyan uppercase tracking-[0.1em]"
+                disabled={isCreating}
+                className={`flex-1 brand-gradient px-5 py-3 rounded-xl text-xs font-black transition-all hover:scale-105 shadow-lg glow-cyan uppercase tracking-[0.1em] ${isCreating ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                创建
+                {isCreating ? '创建中...' : '创建'}
               </button>
             </div>
           </div>
@@ -577,11 +758,15 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
           
           return (
             <div 
-              key={node.id} 
+              key={node.id}
+              draggable={!isFolder}
+              onDragStart={(e) => !isFolder && nodeId && handleDragStart(e, nodeId)}
+              onDragOver={(e) => isFolder && handleDragOver(e)}
+              onDrop={(e) => isFolder && folder && handleDrop(e, folder)}
               className={`group relative bg-[#0d1121] border transition-all duration-300 cursor-pointer shadow-xl rounded-[2.5rem] p-5 ${
                 isSelected ? 'border-cyan-500 bg-cyan-500/5' : 
                 'border-white/5 hover:border-white/20'
-              }`}
+              } ${isFolder ? 'hover:bg-white/5' : ''}`}
               onClick={() => {
                 if (isFolder && folder) {
                   enterFolder(folder);
@@ -604,7 +789,20 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
 
               <div className="aspect-square rounded-[2rem] bg-[#060813] flex items-center justify-center mb-5 overflow-hidden group-hover:scale-[1.02] transition-transform relative">
                 {isFolder ? (
-                  <Folder className="w-16 h-16 text-gray-800 group-hover:text-cyan-500/40 transition-colors" />
+                  node.thumbnail ? (
+                    <div className="relative w-full h-full">
+                        <img 
+                          src={node.thumbnail} 
+                          className="w-full h-full object-cover opacity-50 blur-[1px] group-hover:blur-0 group-hover:opacity-80 transition-all duration-300" 
+                          alt={node.name} 
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Folder className="w-10 h-10 text-white drop-shadow-lg" />
+                        </div>
+                    </div>
+                  ) : (
+                    <Folder className="w-16 h-16 text-gray-800 group-hover:text-cyan-500/40 transition-colors" />
+                  )
                 ) : node.type === 'image' ? (
                   <img 
                     src={node.url} 
@@ -620,27 +818,47 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
 
               <div className="flex flex-col px-1 space-y-2">
                 {(isEditingAsset && !isFolder) || (isEditingFolder && isFolder) ? (
-                  <div onClick={e => e.stopPropagation()}>
+                  <div onClick={e => e.stopPropagation()} className="relative z-20 flex items-center gap-1">
                     <input 
                       autoFocus 
                       value={editName} 
                       onChange={e => setEditName(e.target.value)}
                       onKeyDown={e => { 
                         if (e.key === 'Enter') {
-                          if (isEditingAsset) saveRenameAsset();
-                          else if (isEditingFolder) saveRenameFolder();
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (isFolder) {
+                             saveRenameFolder();
+                          } else {
+                             saveRenameAsset();
+                          }
                         }
                         if (e.key === 'Escape') {
+                          e.preventDefault();
+                          e.stopPropagation();
                           setEditingAssetId(null);
                           setEditingFolderId(null);
                         }
                       }} 
-                      onBlur={() => {
-                        if (isEditingAsset) saveRenameAsset();
-                        else if (isEditingFolder) saveRenameFolder();
-                      }}
-                      className="w-full bg-white/10 border border-cyan-500/50 rounded-lg px-3 py-1.5 text-xs outline-none font-bold"
+                      onClick={e => e.stopPropagation()}
+                      className="flex-1 bg-white/10 border border-cyan-500/50 rounded-lg px-2 py-1.5 text-xs outline-none font-bold min-w-0"
                     />
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (isFolder) {
+                          saveRenameFolder();
+                        } else {
+                          saveRenameAsset();
+                        }
+                      }}
+                      className="p-1.5 bg-cyan-500/20 hover:bg-cyan-500/40 text-cyan-400 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
+                      title="保存"
+                    >
+                      <Check size={12} />
+                    </button>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between">
@@ -671,7 +889,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
                   </div>
                 )}
                 <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">
-                  {isFolder ? 'FOLDER' : 'ASSET FILE'}
+                  {isFolder ? 'FOLDER' : new Date(node.createdAt).toLocaleDateString()}
                 </span>
               </div>
             </div>

@@ -52,38 +52,9 @@ export const publishContent = async (
   userId: number,
   request: PublishContentRequest
 ): Promise<PublishedContent> => {
-  const API_BASE_URL = getApiBaseUrl();
-  const token = localStorage.getItem('app_token');
-  
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    'X-User-Id': userId.toString(),
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}/app/published-contents`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify(request),
+  return post<PublishedContent>('/app/published-contents', request, {
+    headers: { 'X-User-Id': userId.toString() }
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || '发布失败');
-  }
-
-  if (data.code !== undefined) {
-    if (data.code === 200) {
-      return data.data;
-    } else {
-      throw new Error(data.message || '发布失败');
-    }
-  }
-
-  return data;
 };
 
 /**
@@ -94,37 +65,10 @@ export const publishContent = async (
 export const getPublishedContents = async (
   type: 'all' | 'image' | 'video' = 'all'
 ): Promise<PublishedContent[]> => {
-  const API_BASE_URL = getApiBaseUrl();
-  const token = localStorage.getItem('app_token');
-  
   const params = new URLSearchParams();
   params.append('type', type);
 
-  const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}/app/published-contents?${params.toString()}`, {
-    method: 'GET',
-    headers: headers,
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || '获取发布内容列表失败');
-  }
-
-  if (data.code !== undefined) {
-    if (data.code === 200) {
-      return data.data;
-    } else {
-      throw new Error(data.message || '获取发布内容列表失败');
-    }
-  }
-
-  return data;
+  return get<PublishedContent[]>(`/app/published-contents?${params.toString()}`);
 };
 
 /**
@@ -215,37 +159,14 @@ export const getLikeStatus = async (
   userId: number | null,
   contentId: number
 ): Promise<LikeStatusResponse> => {
-  const API_BASE_URL = getApiBaseUrl();
-  const token = localStorage.getItem('app_token');
-  
   const headers: HeadersInit = {};
   if (userId) {
     headers['X-User-Id'] = userId.toString();
   }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
-  const response = await fetch(`${API_BASE_URL}/app/published-contents/${contentId}/like-status`, {
-    method: 'GET',
-    headers: headers,
+  return get<LikeStatusResponse>(`/app/published-contents/${contentId}/like-status`, {
+    headers: headers
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || '获取点赞状态失败');
-  }
-
-  if (data.code !== undefined) {
-    if (data.code === 200) {
-      return data.data;
-    } else {
-      throw new Error(data.message || '获取点赞状态失败');
-    }
-  }
-
-  return data;
 };
 
 /**

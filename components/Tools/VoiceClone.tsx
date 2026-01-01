@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Mic2, Upload, FileText, ChevronDown, Play, Repeat, Zap } from 'lucide-react';
 import * as voiceAPI from '../../api/voice';
+import { message } from 'antd';
 
 const VoiceClone: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -30,12 +31,12 @@ const VoiceClone: React.FC = () => {
   const handleClone = async () => {
     // 验证输入
     if (!fileData) {
-      alert('请上传参考音频');
+      message.warning('请上传参考音频');
       return;
     }
     
     if (!text.trim()) {
-      alert('请输入要合成的文本');
+      message.warning('请输入要合成的文本');
       return;
     }
     
@@ -50,7 +51,8 @@ const VoiceClone: React.FC = () => {
       
       setAudioUrl(response.audioUrl);
     } catch (error: any) {
-      alert('克隆失败：' + (error.message || '未知错误'));
+      message.error('克隆失败：' + (error.message || '未知错误'));
+      console.error('克隆失败:', error);
     } finally {
       setCloning(false);
     }

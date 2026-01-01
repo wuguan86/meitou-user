@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { 
   Layers, 
   Upload, 
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react';
 import { AssetNode, ImageGenerationConfig } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
-import AssetPickerModal from '../modals/AssetPickerModal';
+import AssetPickerModal from '../Modals/AssetPickerModal';
 import * as generationAPI from '../../api/generation';
 import * as uploadAPI from '../../api/upload';
 
@@ -169,12 +170,12 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset }) => {
   const handleGenerate = async () => {
     // 验证提示词和图片
     if (!prompt.trim()) {
-      alert('请输入提示词');
+      message.warning('请输入提示词');
       return;
     }
     
     if (!files[0]) {
-      alert('请上传参考图片');
+      message.warning('请上传参考图片');
       return;
     }
     
@@ -236,7 +237,7 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset }) => {
       setImages(newImages);
     } catch (error: any) {
       // 错误处理
-      alert('生成失败: ' + (error.message || '未知错误'));
+      message.error('生成失败: ' + (error.message || '未知错误'));
       console.error('图生图失败:', error);
     } finally {
       setGenerating(false);
@@ -283,19 +284,19 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset }) => {
             <div className="flex bg-[#151929] rounded-xl p-1">
               <button 
                 onClick={() => setActiveTab('single')}
-                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'single' ? 'bg-[#22283d] text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'single' ? 'brand-gradient text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 单图参考
               </button>
               <button 
                 onClick={() => setActiveTab('frames')}
-                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'frames' ? 'bg-[#22283d] text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'frames' ? 'brand-gradient text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 首尾帧参考
               </button>
               <button 
                 onClick={() => setActiveTab('multi')}
-                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'multi' ? 'bg-[#22283d] text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'multi' ? 'brand-gradient text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 多图参考
               </button>

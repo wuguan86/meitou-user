@@ -40,6 +40,8 @@ export const getApiBaseUrl = (): string => {
   // 如果域名不在允许列表中，记录警告
   if (!isAllowedDomain) {
     console.warn(`当前域名 ${hostname} 不在允许列表中，使用默认API配置`);
+    // 在生产环境中，如果您部署到了自定义域名，请确保在此处或通过Nginx正确配置
+    // 或者将您的域名添加到 ALLOWED_DOMAINS 列表中
   }
   
   // 三个业务域名都使用相对路径（通过Nginx反向代理）

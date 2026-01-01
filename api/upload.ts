@@ -1,7 +1,7 @@
 /**
  * 文件上传相关 API
  */
-import { post } from './index';
+import { postForm } from './index';
 import { getApiBaseUrl } from './config';
 
 /**
@@ -14,37 +14,7 @@ export const uploadImage = async (file: File): Promise<string> => {
   const formData = new FormData();
   formData.append('file', file);
   
-  // 调用上传接口
-  const API_BASE_URL = getApiBaseUrl();
-  const token = localStorage.getItem('app_token');
-  
-  const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  
-  const response = await fetch(`${API_BASE_URL}/admin/upload/image`, {
-    method: 'POST',
-    headers: headers,
-    body: formData,
-  });
-  
-  const data = await response.json();
-  
-  if (!response.ok) {
-    throw new Error(data.message || '上传失败');
-  }
-  
-  // 如果响应格式是 Result<T>
-  if (data.code !== undefined) {
-    if (data.code === 200) {
-      return data.data;
-    } else {
-      throw new Error(data.message || '上传失败');
-    }
-  }
-  
-  return data;
+  return postForm<string>('/app/upload/image', formData);
 };
 
 /**

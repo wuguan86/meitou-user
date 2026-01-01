@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { X, Heart, Copy, ImageIcon, Gem } from 'lucide-react';
 import { Inspiration, PageType } from '../../types';
 import * as publishAPI from '../../api/publish';
@@ -13,8 +14,18 @@ interface InspirationModalProps {
 const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNavigate }) => {
   const [copied, setCopied] = useState(false);
   const [workData, setWorkData] = useState<Inspiration | null>(work);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [originalPos, setOriginalPos] = useState({ x: 0, y: 0 });
 
-  // 如果work没有generationConfig，尝试从API获取详情
+  const handleOriginalEnter = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    // 显示在缩略图上方，居中对齐
+    setOriginalPos({
+        x: rect.left + rect.width / 2,
+        y: rect.top - 10
+    });
+    setShowOriginal(true);
+  };
   useEffect(() => {
     const loadDetail = async () => {
       if (work && (!work.generationConfig || !work.generationType) && work.id) {
@@ -52,18 +63,60 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
 
   if (!workData) return null;
 
-  const handleCopy = () => {
-    if (workData.prompt) {
-      navigator.clipboard.writeText(workData.prompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    const textToCopy = workData?.prompt;
+    if (!textToCopy || textToCopy === '无') {
+        message.warning('暂无提示词可复制');
+        return;
+    }
+
+    try {
+        // 优先尝试使用 navigator.clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(textToCopy);
+            setCopied(true);
+            message.success('复制成功');
+        } else {
+            // 降级方案：使用 textarea + execCommand
+            const textArea = document.createElement("textarea");
+            textArea.value = textToCopy;
+            
+            // 确保 textarea 不可见但存在于文档中
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            textArea.style.top = "0";
+            document.body.appendChild(textArea);
+            
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    setCopied(true);
+                    message.success('复制成功');
+                } else {
+                    throw new Error('execCommand copy failed');
+                }
+            } catch (err) {
+                console.error('Fallback copy failed', err);
+                message.error('复制失败，请尝试手动复制');
+            } finally {
+                document.body.removeChild(textArea);
+            }
+        }
+        
+        setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+        console.error('Copy failed', err);
+        message.error('复制失败');
     }
   };
   
   // 一键制作同款
   const handleMakeSimilar = () => {
     if (!workData.generationType || !workData.generationConfig) {
-      alert('该作品没有生成配置信息');
+      message.warning('该作品没有生成配置信息');
       return;
     }
     
@@ -93,7 +146,7 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
         targetPage = 'image-to-video';
         break;
       default:
-        alert('未知的生成类型');
+        message.error('未知的生成类型');
         return;
     }
     
@@ -103,10 +156,35 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in" onClick={onClose}>
+      {/* 悬浮原图大图展示 */}
+      {showOriginal && workData?.originalImageUrl && (
+        <div 
+            className="fixed z-[100] pointer-events-none animate-in fade-in zoom-in duration-200"
+            style={{
+                left: originalPos.x,
+                top: originalPos.y,
+                transform: 'translate(-50%, -100%)', // 居中并向上偏移
+            }}
+        >
+            <div className="bg-black p-2 rounded-xl border border-white/20 shadow-2xl mb-2">
+                <img 
+                    src={workData.originalImageUrl} 
+                    alt="原图大图" 
+                    className="max-w-[400px] max-h-[400px] object-contain rounded-lg"
+                />
+            </div>
+        </div>
+      )}
       <div className="bg-[#0d1121] w-full max-w-6xl h-[90vh] max-h-[800px] rounded-[3rem] shadow-2xl flex overflow-hidden border border-white/10" onClick={e => e.stopPropagation()}>
-        <div className="w-3/5 bg-black relative group">
+        <div className="w-3/5 bg-black relative group" onContextMenu={(e) => e.preventDefault()}>
           {workData.type === 'video' ? (
-            <video src={workData.contentUrl || workData.img} controls className="w-full h-full object-contain" />
+            <video 
+              src={workData.contentUrl || workData.img} 
+              controls 
+              controlsList="nodownload"
+              disablePictureInPicture
+              className="w-full h-full object-contain" 
+            />
           ) : (
             <img src={workData.img} alt={workData.title} className="w-full h-full object-contain" />
           )}
@@ -135,13 +213,12 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
                 </div>
                 <div className="w-px h-6 bg-white/10"></div>
                 {workData.originalImageUrl && (
-                    <div className="relative group/original">
-                        <div className="w-10 h-10 rounded-md overflow-hidden border-2 border-white/10 cursor-pointer">
-                            <img src={workData.originalImageUrl} alt="原图" className="w-full h-full object-cover"/>
-                        </div>
-                        <div className="absolute bottom-full left-0 mb-2 w-48 h-48 bg-black border border-white/10 rounded-lg p-2 opacity-0 group-hover/original:opacity-100 transition-opacity pointer-events-none z-10">
-                            <img src={workData.originalImageUrl} alt="原图" className="w-full h-full object-cover rounded-md"/>
-                        </div>
+                    <div 
+                        className="w-10 h-10 rounded-md overflow-hidden border-2 border-white/10 cursor-pointer hover:border-white/50 transition-colors"
+                        onMouseEnter={handleOriginalEnter}
+                        onMouseLeave={() => setShowOriginal(false)}
+                    >
+                        <img src={workData.originalImageUrl} alt="原图" className="w-full h-full object-cover"/>
                     </div>
                 )}
             </div>

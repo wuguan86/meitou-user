@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Gem, Check, CreditCard, Wallet } from 'lucide-react';
+import { message } from 'antd';
+import { X, Gem, Check, CreditCard, Wallet, Landmark } from 'lucide-react';
 import { User } from '../../types';
 import { 
   getRechargeConfig, 
@@ -29,7 +30,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
   const [customAmount, setCustomAmount] = useState('');
   
   // 支付相关状态
-  const [paymentType, setPaymentType] = useState<'wechat' | 'alipay'>('wechat');
+  const [paymentType, setPaymentType] = useState<'wechat' | 'alipay' | 'bank_transfer'>('wechat');
   const [isPaying, setIsPaying] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<RechargeOrderResponse | null>(null);
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null);
@@ -94,7 +95,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
       }
     } catch (error) {
       console.error('加载充值配置失败:', error);
-      alert('加载充值配置失败，请刷新重试');
+      // message.error('加载充值配置失败，请刷新重试');
     } finally {
       setLoadingConfig(false);
     }
@@ -125,11 +126,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
   };
   
   const handleCustomBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (!config) return;
-    const value = parseInt(e.target.value);
-    if (!isNaN(value) && value < config.minAmount) {
-      setCustomAmount(config.minAmount.toString());
-    }
+    // 移除自动修正，让用户看到错误提示
   };
   
   // 计算当前选择的金额和算力
@@ -156,7 +153,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
   // 处理支付
   const handlePay = async () => {
     if (!config) {
-      alert('配置未加载，请稍候重试');
+      message.warning('配置未加载，请稍候重试');
       return;
     }
     
@@ -166,13 +163,13 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
     // 验证金额
     if (selectedOption === 0) {
       if (isNaN(amount) || amount < minAmount) {
-        alert(`自定义金额最低${minAmount}元起充，且必须为整数。`);
+        message.warning(`自定义金额最低${minAmount}元起充，且必须为整数。`);
         return;
       }
     }
     
     if (amount <= 0) {
-      alert('请选择充值金额');
+      message.warning('请选择充值金额');
       return;
     }
     
@@ -205,7 +202,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
       
     } catch (error: any) {
       console.error('创建订单失败:', error);
-      alert('创建订单失败：' + (error.message || '未知错误'));
+      // message.error('创建订单失败：' + (error.message || '未知错误'));
       setIsPaying(false);
     }
   };
@@ -231,7 +228,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
           onUpdatePoints(order.points);
           
           // 显示成功提示
-          alert(`支付成功！已充值 ${order.points} 算力`);
+          message.success(`支付成功！已充值 ${order.points} 算力`);
           
           // 关闭弹窗
           setIsPaying(false);
@@ -245,7 +242,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
             pollIntervalRef.current = null;
           }
           
-          alert(`订单${order.status === 'failed' ? '支付失败' : '已取消'}`);
+          message.error(`订单${order.status === 'failed' ? '支付失败' : '已取消'}`);
           setIsPaying(false);
           setCurrentOrder(null);
           setPaymentQrCode(null);
@@ -385,7 +382,17 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
                           <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
                         </button>
                         {opt.points === 0 && (
-                          <p className={`text-center text-[10px] font-bold mt-2 transition-opacity ${selectedOption === 0 ? 'text-gray-500 opacity-100' : 'opacity-0'}`}>最低充值{minAmount}元</p>
+                          <p className={`text-center text-[10px] font-bold mt-2 transition-opacity ${
+                            selectedOption === 0 
+                              ? (customAmount !== '' && parseInt(customAmount) < minAmount 
+                                  ? 'text-[#ff4d4f] opacity-100 animate-pulse' 
+                                  : 'text-gray-500 opacity-100') 
+                              : 'opacity-0'
+                          }`}>
+                            {selectedOption === 0 && customAmount !== '' && parseInt(customAmount) < minAmount 
+                              ? `最低充值金额不能小于${minAmount}元` 
+                              : `最低充值${minAmount}元`}
+                          </p>
                         )}
                       </div>
                     ))}
@@ -407,41 +414,68 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
                   <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] px-2">选择支付渠道</h4>
                     <div className="space-y-3">
-                      <button 
-                        onClick={() => setPaymentType('wechat')}
-                        disabled={isPaying}
-                        className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all group ${
-                          paymentType === 'wechat' ? 'border-[#2cc2f5] bg-[#2cc2f5]/5' : 'border-white/5 bg-[#0d1121] hover:bg-white/[0.02]'
-                        } ${isPaying ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        <div className="flex items-center space-x-4">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${paymentType === 'wechat' ? 'bg-green-500 shadow-lg glow-pink' : 'bg-gray-800 opacity-60'}`}>
-                            <Wallet className="w-5 h-5 text-white" />
+                      {/* 微信支付 */}
+                      {(!config.enabledPaymentMethods || config.enabledPaymentMethods.includes('wechat')) && (
+                        <button 
+                          onClick={() => setPaymentType('wechat')}
+                          disabled={isPaying}
+                          className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all group ${
+                            paymentType === 'wechat' ? 'border-[#2cc2f5] bg-[#2cc2f5]/5' : 'border-white/5 bg-[#0d1121] hover:bg-white/[0.02]'
+                          } ${isPaying ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${paymentType === 'wechat' ? 'bg-green-500 shadow-lg glow-pink' : 'bg-gray-800 opacity-60'}`}>
+                              <Wallet className="w-5 h-5 text-white" />
+                            </div>
+                            <span className={`text-sm font-black ${paymentType === 'wechat' ? 'text-white' : 'text-gray-500'}`}>微信支付</span>
                           </div>
-                          <span className={`text-sm font-black ${paymentType === 'wechat' ? 'text-white' : 'text-gray-500'}`}>微信支付</span>
-                        </div>
-                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${paymentType === 'wechat' ? 'border-[#2cc2f5] bg-[#2cc2f5]/20' : 'border-white/10'}`}>
-                          {paymentType === 'wechat' && <div className="w-3 h-3 bg-[#2cc2f5] rounded-full shadow-lg" />}
-                        </div>
-                      </button>
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${paymentType === 'wechat' ? 'border-[#2cc2f5] bg-[#2cc2f5]/20' : 'border-white/10'}`}>
+                            {paymentType === 'wechat' && <div className="w-3 h-3 bg-[#2cc2f5] rounded-full shadow-lg" />}
+                          </div>
+                        </button>
+                      )}
 
-                      <button 
-                        onClick={() => setPaymentType('alipay')}
-                        disabled={isPaying}
-                        className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all group ${
-                          paymentType === 'alipay' ? 'border-[#2cc2f5] bg-[#2cc2f5]/5' : 'border-white/5 bg-[#0d1121] hover:bg-white/[0.02]'
-                        } ${isPaying ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        <div className="flex items-center space-x-4">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${paymentType === 'alipay' ? 'bg-blue-500 shadow-lg glow-cyan' : 'bg-gray-800 opacity-60'}`}>
-                            <CreditCard className="w-5 h-5 text-white" />
+                      {/* 支付宝 */}
+                      {(!config.enabledPaymentMethods || config.enabledPaymentMethods.includes('alipay')) && (
+                        <button 
+                          onClick={() => setPaymentType('alipay')}
+                          disabled={isPaying}
+                          className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all group ${
+                            paymentType === 'alipay' ? 'border-[#2cc2f5] bg-[#2cc2f5]/5' : 'border-white/5 bg-[#0d1121] hover:bg-white/[0.02]'
+                          } ${isPaying ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${paymentType === 'alipay' ? 'bg-blue-500 shadow-lg glow-cyan' : 'bg-gray-800 opacity-60'}`}>
+                              <CreditCard className="w-5 h-5 text-white" />
+                            </div>
+                            <span className={`text-sm font-black ${paymentType === 'alipay' ? 'text-white' : 'text-gray-500'}`}>支付宝</span>
                           </div>
-                          <span className={`text-sm font-black ${paymentType === 'alipay' ? 'text-white' : 'text-gray-500'}`}>支付宝</span>
-                        </div>
-                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${paymentType === 'alipay' ? 'border-[#2cc2f5] bg-[#2cc2f5]/20' : 'border-white/10'}`}>
-                          {paymentType === 'alipay' && <div className="w-3 h-3 bg-[#2cc2f5] rounded-full shadow-lg" />}
-                        </div>
-                      </button>
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${paymentType === 'alipay' ? 'border-[#2cc2f5] bg-[#2cc2f5]/20' : 'border-white/10'}`}>
+                            {paymentType === 'alipay' && <div className="w-3 h-3 bg-[#2cc2f5] rounded-full shadow-lg" />}
+                          </div>
+                        </button>
+                      )}
+
+                      {/* 对公转账 */}
+                      {(!config.enabledPaymentMethods || config.enabledPaymentMethods.includes('bank_transfer')) && (
+                        <button 
+                          onClick={() => setPaymentType('bank_transfer')}
+                          disabled={isPaying}
+                          className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all group ${
+                            paymentType === 'bank_transfer' ? 'border-[#2cc2f5] bg-[#2cc2f5]/5' : 'border-white/5 bg-[#0d1121] hover:bg-white/[0.02]'
+                          } ${isPaying ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${paymentType === 'bank_transfer' ? 'bg-purple-500 shadow-lg glow-purple' : 'bg-gray-800 opacity-60'}`}>
+                              <Landmark className="w-5 h-5 text-white" />
+                            </div>
+                            <span className={`text-sm font-black ${paymentType === 'bank_transfer' ? 'text-white' : 'text-gray-500'}`}>对公转账</span>
+                          </div>
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${paymentType === 'bank_transfer' ? 'border-[#2cc2f5] bg-[#2cc2f5]/20' : 'border-white/10'}`}>
+                            {paymentType === 'bank_transfer' && <div className="w-3 h-3 bg-[#2cc2f5] rounded-full shadow-lg" />}
+                          </div>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </>
@@ -452,13 +486,31 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
 
         {!isPaying && config && (
           <div className="p-10 bg-[#0d1121] border-t border-white/5 flex flex-col items-center">
-            <button 
-              onClick={handlePay}
-              disabled={selectedOption === null || currentAmount <= 0}
-              className="w-full brand-gradient py-5 rounded-[2rem] font-black text-white shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.3em] text-lg disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              立即支付 ¥ {currentAmount}
-            </button>
+            {/* 对公转账提示 */}
+            {paymentType === 'bank_transfer' && (
+              <div className="w-full mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl flex items-center justify-center">
+                <p className="text-yellow-500 text-sm font-bold text-center">
+                  充值前请联系客服处理
+                </p>
+              </div>
+            )}
+            
+            {paymentType === 'bank_transfer' ? (
+              <button 
+                disabled
+                className="w-full bg-gray-700 py-5 rounded-[2rem] font-black text-gray-400 shadow-none cursor-not-allowed tracking-[0.3em] text-lg"
+              >
+                请联系客服充值
+              </button>
+            ) : (
+              <button 
+                onClick={handlePay}
+                disabled={selectedOption === null || currentAmount <= 0}
+                className="w-full brand-gradient py-5 rounded-[2rem] font-black text-white shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.3em] text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                立即支付 ¥ {currentAmount}
+              </button>
+            )}
             <p className="mt-5 text-[9px] text-gray-700 font-black uppercase tracking-[0.2em]">
               Payment secured by <span className="text-gray-500">MEJI SECURE PAY</span>
             </p>

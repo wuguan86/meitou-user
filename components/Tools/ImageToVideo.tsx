@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { PlaySquare, Upload, ChevronDown, Sparkles, Film, Image as ImageIcon, FolderOpen, ChevronUp } from 'lucide-react';
+import { message } from 'antd';
+import { PlaySquare, Upload, ChevronDown, Sparkles, Film, Image as ImageIcon, FolderOpen, ChevronUp, X } from 'lucide-react';
 import { AssetNode, VideoGenerationConfig } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
-import AssetPickerModal from '../modals/AssetPickerModal';
+import AssetPickerModal from '../Modals/AssetPickerModal';
 import * as generationAPI from '../../api/generation';
+import { uploadImage } from '../../api/upload';
 
 interface ImageToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -19,12 +21,16 @@ interface ModelOption {
 const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [videos, setVideos] = useState<AssetNode[]>([]);
   const [model, setModel] = useState('');
   const [duration, setDuration] = useState<string|number>('Auto');
   const [resolution, setResolution] = useState('720P');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [file, setFile] = useState<string | null>(null);
+  const [lastFrameFile, setLastFrameFile] = useState<string | null>(null);
+  const [referenceFiles, setReferenceFiles] = useState<string[]>([]);
+  const [generationMode, setGenerationMode] = useState<'frames' | 'references'>('frames');
   const [isAssetPickerOpen, setIsAssetPickerOpen] = useState(false);
   const [ratiosOpen, setRatiosOpen] = useState(false);
   const [resolutionOpen, setResolutionOpen] = useState(false);
@@ -96,34 +102,95 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
   const resolutions = ['270P', '720P', '1080P'];
   const ratios = [{ label: '16:9' }, { label: '9:16' }];
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [activePicker, setActivePicker] = useState<'first' | 'last' | 'reference' | null>(null);
+
+  const handleGenericUpload = (setter: (val: string | null) => void) => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) {
+      // 预览
       const reader = new FileReader();
       reader.onload = (ev) => {
-        setFile(ev.target?.result as string);
+        setter(ev.target?.result as string);
       };
       reader.readAsDataURL(f);
+      
+      // 上传
+      try {
+        setUploading(true);
+        const url = await uploadImage(f);
+        setter(url);
+        message.success('图片上传成功');
+      } catch (error) {
+        console.error('上传失败:', error);
+        message.error('图片上传失败');
+        setter(null);
+      } finally {
+        setUploading(false);
+      }
     }
   };
-  
+
+  const handleReferenceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+        if (referenceFiles.length >= 3) {
+            message.warning('最多只能上传3张参考图片');
+            return;
+        }
+        
+        try {
+            setUploading(true);
+            const url = await uploadImage(f);
+            setReferenceFiles([...referenceFiles, url]);
+            message.success('图片上传成功');
+        } catch (error) {
+            console.error('上传失败:', error);
+            message.error('图片上传失败');
+        } finally {
+            setUploading(false);
+        }
+    }
+  }
+
   const handleFileSelect = (asset: AssetNode) => {
     if (asset.url) {
-      setFile(asset.url);
+      if (activePicker === 'first') setFile(asset.url);
+      else if (activePicker === 'last') setLastFrameFile(asset.url);
+      else if (activePicker === 'reference') {
+        if (referenceFiles.length >= 3) {
+            message.warning('最多只能上传3张参考图片');
+        } else {
+            setReferenceFiles([...referenceFiles, asset.url]);
+        }
+      }
     }
     setIsAssetPickerOpen(false);
+    setActivePicker(null);
   };
   
   const handleGenerate = async () => {
+    // 检查上传状态
+    if (uploading) {
+      message.warning('图片正在上传中，请稍候...');
+      return;
+    }
+
     // 验证提示词和图片
     if (!prompt.trim()) {
-      alert('请输入提示词');
+      message.warning('请输入提示词');
       return;
     }
     
-    if (!file) {
-      alert('请上传参考图片');
-      return;
+    if (generationMode === 'frames') {
+        if (!file) {
+            message.warning('请上传首帧图片');
+            return;
+        }
+    } else {
+        if (referenceFiles.length === 0) {
+            message.warning('请至少上传一张参考图片');
+            return;
+        }
     }
     
     setGenerating(true);
@@ -131,11 +198,15 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
       // 准备请求参数
       const request: generationAPI.ImageToVideoRequest = {
         prompt: prompt,
-        image: file, // 参考图片（URL或base64）
+        image: generationMode === 'frames' ? file! : referenceFiles[0], // 兼容必填字段
         model: model,
         aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
         resolution: resolution === 'Auto' ? undefined : resolution,
         duration: typeof duration === 'number' ? duration : undefined,
+        
+        firstFrameUrl: generationMode === 'frames' ? file! : undefined,
+        lastFrameUrl: generationMode === 'frames' ? (lastFrameFile || undefined) : undefined,
+        urls: generationMode === 'references' ? referenceFiles : undefined,
       };
       
       // 调用图生视频API
@@ -148,7 +219,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
         resolution: resolution === 'Auto' ? undefined : resolution,
         aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
         duration: typeof duration === 'number' ? duration : undefined,
-        referenceImage: file || undefined,
+        referenceImage: generationMode === 'frames' ? (file || undefined) : referenceFiles[0],
       };
 
       // 将响应转换为AssetNode格式
@@ -167,7 +238,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
       setVideos([newVideo]);
       onSelectAsset(newVideo);
     } catch (error: any) {
-      alert('生成失败：' + (error.message || '未知错误'));
+      message.error('生成失败：' + (error.message || '未知错误'));
     } finally {
       setGenerating(false);
     }
@@ -183,18 +254,49 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
     );
   };
 
-  const UploadBox = () => (
-    <label className="block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative group">
-      {file ? (
-        <img src={file} className="w-full h-full object-cover" alt="Preview" />
-      ) : (
-        <div className="h-full flex flex-col items-center justify-center space-y-2">
-          <Upload className="w-5 h-5 text-gray-500" />
-          <p className="text-xs font-bold text-gray-400">点击或拖拽图片</p>
-        </div>
-      )}
-      <input type="file" className="hidden" onChange={handleUpload} accept="image/*" />
-    </label>
+  const ImageUploader = ({ 
+    file, 
+    onUpload, 
+    onClear, 
+    label, 
+    placeholder = "点击或拖拽图片",
+    onPickAsset
+  }: { 
+    file?: string | null, 
+    onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void, 
+    onClear: () => void,
+    label?: string,
+    placeholder?: string,
+    onPickAsset: () => void
+  }) => (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between px-1">
+        {label && <span className="text-sm font-bold text-white">{label}</span>}
+        <button onClick={onPickAsset} className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors">
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span>从资产选择</span>
+        </button>
+      </div>
+      <label className="block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative group">
+        {file ? (
+          <>
+            <img src={file} className="w-full h-full object-cover" alt="Preview" />
+            <button 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClear(); }}
+              className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-10"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center space-y-2">
+            <Upload className="w-5 h-5 text-gray-500" />
+            <p className="text-xs font-bold text-gray-400">{placeholder}</p>
+          </div>
+        )}
+        <input type="file" className="hidden" onChange={onUpload} accept="image/*" />
+      </label>
+    </div>
   );
 
   return (
@@ -210,15 +312,75 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-4 space-y-8">
           <div className="bg-[#0d1121] border border-white/5 rounded-[2rem] p-8 space-y-8">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-sm font-bold text-white">上传参考图片</span>
-                <button onClick={() => setIsAssetPickerOpen(true)} className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors">
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  <span>从资产选择</span>
+            <div className="flex p-1 bg-[#060813] rounded-xl border border-white/5 mb-4">
+                <button 
+                    onClick={() => setGenerationMode('frames')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${generationMode === 'frames' ? 'brand-gradient text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+                >
+                    首尾帧模式
                 </button>
-              </div>
-              <UploadBox />
+                <button 
+                    onClick={() => setGenerationMode('references')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${generationMode === 'references' ? 'brand-gradient text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+                >
+                    参考图模式
+                </button>
+            </div>
+
+            <div className="space-y-6">
+              {generationMode === 'frames' ? (
+                <>
+                    <ImageUploader 
+                        label="首帧图片 (必填)" 
+                        file={file} 
+                        onUpload={handleGenericUpload(setFile)} 
+                        onClear={() => setFile(null)}
+                        onPickAsset={() => { setIsAssetPickerOpen(true); setActivePicker('first'); }}
+                    />
+                    <ImageUploader 
+                        label="尾帧图片 (选填)" 
+                        file={lastFrameFile} 
+                        onUpload={handleGenericUpload(setLastFrameFile)} 
+                        onClear={() => setLastFrameFile(null)}
+                        placeholder="点击上传尾帧"
+                        onPickAsset={() => { setIsAssetPickerOpen(true); setActivePicker('last'); }}
+                    />
+                </>
+              ) : (
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                        <span className="text-sm font-bold text-white">参考图片 (最多3张)</span>
+                        <button onClick={() => { setIsAssetPickerOpen(true); setActivePicker('reference'); }} className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors">
+                            <FolderOpen className="w-3.5 h-3.5" />
+                            <span>从资产选择</span>
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        {referenceFiles.map((url, idx) => (
+                            <div key={idx} className="relative aspect-video rounded-xl overflow-hidden border border-white/10 group">
+                                <img src={url} className="w-full h-full object-cover" />
+                                <button 
+                                    onClick={() => {
+                                        const newFiles = [...referenceFiles];
+                                        newFiles.splice(idx, 1);
+                                        setReferenceFiles(newFiles);
+                                    }}
+                                    className="absolute top-1 right-1 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        ))}
+                        {referenceFiles.length < 3 && (
+                            <label className="aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all flex flex-col items-center justify-center space-y-1">
+                                <Upload className="w-4 h-4 text-gray-500" />
+                                <span className="text-[10px] font-bold text-gray-400">上传图片</span>
+                                <input type="file" className="hidden" onChange={handleReferenceUpload} accept="image/*" />
+                            </label>
+                        )}
+                    </div>
+                </div>
+              )}
             </div>
             
             <div className="bg-[#060813] p-6 rounded-2xl border border-white/5">
