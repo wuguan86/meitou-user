@@ -17,6 +17,7 @@ export interface AssetNode {
   // 生成配置参数（用于发布）
   generationType?: 'txt2img' | 'img2img' | 'txt2video' | 'img2video';
   generationConfig?: ImageGenerationConfig | VideoGenerationConfig;
+  isPublish?: boolean;
 }
 
 export interface User {
@@ -83,6 +84,9 @@ export interface Site {
   domain: string;
   category: number;
   manual?: string; // 使用手册链接
+  userAgreement?: string; // 用户协议
+  privacyPolicy?: string; // 隐私政策
+  copyright?: string; // 版权信息
   status: number;
   deleted: number;
   createTime: string;

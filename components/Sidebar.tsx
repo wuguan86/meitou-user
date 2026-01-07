@@ -44,6 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [menuConfigs, setMenuConfigs] = useState<MenuConfig[]>([]);
   const [csConfig, setCsConfig] = useState<customerServiceAPI.CustomerServiceConfig | null>(null);
   const [manualUrl, setManualUrl] = useState('');
+  const [copyright, setCopyright] = useState('');
 
   // 菜单代码到前端ID的映射
   const codeToIdMap: Record<string, PageType> = {
@@ -78,8 +79,13 @@ const Sidebar: React.FC<SidebarProps> = ({
         // 加载站点信息
         try {
           const site = await getCurrentSite();
-          if (site && site.manual) {
-            setManualUrl(site.manual);
+          if (site) {
+            if (site.manual) {
+              setManualUrl(site.manual);
+            }
+            if (site.copyright) {
+              setCopyright(site.copyright);
+            }
           }
         } catch (err) {
           console.error('Sidebar: 获取站点信息失败:', err);
@@ -179,7 +185,11 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
         <span className="text-xl font-bold text-white tracking-tight">美迹AI</span>
-        <span className="text-[10px] text-gray-500 border border-white/10 px-2 rounded-full py-0.5 font-mono ml-auto">v3.1.4</span>
+        {copyright && (
+          <span className="text-[10px] text-gray-500 border border-white/10 px-2 rounded-full py-0.5 font-mono ml-auto">
+            {copyright}
+          </span>
+        )}
       </div>
 
       {/* Main Nav */}

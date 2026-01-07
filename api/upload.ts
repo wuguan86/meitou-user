@@ -18,6 +18,19 @@ export const uploadImage = async (file: File): Promise<string> => {
 };
 
 /**
+ * 上传视频
+ * @param file 视频文件
+ * @returns 视频的访问URL
+ */
+export const uploadVideo = async (file: File): Promise<string> => {
+  // 创建FormData
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  return postForm<string>('/app/upload/video', formData);
+};
+
+/**
  * 将base64转换为File对象
  * @param base64 base64字符串（包含data:image/...前缀）
  * @param filename 文件名

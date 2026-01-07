@@ -2,17 +2,18 @@
 import React from 'react';
 import { X, Download, RefreshCw, Send, Sparkles } from 'lucide-react';
 import { message } from 'antd';
-import { AssetNode } from '../../types';
+import { AssetNode, PageType } from '../../types';
 
 interface AssetDetailModalProps {
   asset: AssetNode;
   onClose: () => void;
   onPublish: () => void;
+  onNavigate?: (page: PageType) => void;
   // 是否显示发布和重绘按钮（从资产选择的图片不显示，生成的图片显示）
   showActions?: boolean;
 }
 
-const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onPublish, showActions = true }) => {
+const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onPublish, onNavigate, showActions = true }) => {
   const params = React.useMemo(() => {
     if (!asset.generationParams) return null;
     try {
@@ -40,9 +41,66 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
       message.success('下载已开始');
     } catch (error) {
       console.error('Download failed:', error);
-      message.error('下载失败，尝试在新窗口打开');
+      // 降级处理：直接在新窗口打开，不显示错误提示，因为通常是跨域问题导致的，新窗口打开可以正常下载
       window.open(asset.url, '_blank');
     }
+  };
+
+  const handleRedraw = () => {
+    if (!onNavigate) return;
+    
+    // 如果没有生成配置，无法重绘
+    if (!asset.generationType || !asset.generationConfig) {
+      // 尝试解析 generationParams
+      if (asset.generationParams && asset.generationType) {
+        try {
+           const config = JSON.parse(asset.generationParams);
+           localStorage.setItem('makeSimilarConfig', JSON.stringify({
+             generationType: asset.generationType,
+             config: config,
+           }));
+        } catch (e) {
+           message.warning('该作品缺少生成配置信息，无法重绘');
+           return;
+        }
+      } else {
+        message.warning('该作品缺少生成配置信息，无法重绘');
+        return;
+      }
+    } else {
+      // 将配置参数保存到localStorage，供生成工具组件使用
+      try {
+        localStorage.setItem('makeSimilarConfig', JSON.stringify({
+          generationType: asset.generationType,
+          config: asset.generationConfig,
+        }));
+      } catch (e) {
+        console.error('保存配置参数失败:', e);
+      }
+    }
+    
+    // 根据生成类型跳转到对应的生成工具页面
+    let targetPage: PageType;
+    switch (asset.generationType) {
+      case 'txt2img':
+        targetPage = 'text-to-image';
+        break;
+      case 'img2img':
+        targetPage = 'image-to-image';
+        break;
+      case 'txt2video':
+        targetPage = 'text-to-video';
+        break;
+      case 'img2video':
+        targetPage = 'image-to-video';
+        break;
+      default:
+        message.error('未知的生成类型');
+        return;
+    }
+    
+    onClose();
+    onNavigate(targetPage);
   };
 
   return (
@@ -118,7 +176,7 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
             <>
               <div className="flex items-center space-x-4">
                 <button 
-                  onClick={onClose}
+                  onClick={handleRedraw}
                   className="flex items-center space-x-2 text-sm font-bold text-gray-400 hover:text-white">
                   <RefreshCw className="w-4 h-4" />
                   <span>重绘</span>
@@ -130,12 +188,21 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
                   <span>下载</span>
                 </button>
               </div>
-              <button 
-                onClick={onPublish}
-                className="brand-gradient px-8 py-3 rounded-xl font-black text-sm text-white shadow-lg glow-pink hover:scale-105 transition-transform flex items-center space-x-2">
-                <Send className="w-4 h-4" />
-                <span>发布</span>
-              </button>
+              {asset.isPublish ? (
+                <button 
+                  disabled
+                  className="bg-white/10 px-8 py-3 rounded-xl font-black text-sm text-gray-400 cursor-not-allowed flex items-center space-x-2 border border-white/5">
+                  <Send className="w-4 h-4" />
+                  <span>已发布</span>
+                </button>
+              ) : (
+                <button 
+                  onClick={onPublish}
+                  className="brand-gradient px-8 py-3 rounded-xl font-black text-sm text-white shadow-lg glow-pink hover:scale-105 transition-transform flex items-center space-x-2">
+                  <Send className="w-4 h-4" />
+                  <span>发布</span>
+                </button>
+              )}
             </>
           ) : (
             // 从资产选择的图片只显示下载按钮

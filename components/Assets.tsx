@@ -889,7 +889,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
                   </div>
                 )}
                 <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">
-                  {isFolder ? 'FOLDER' : new Date(node.createdAt).toLocaleDateString()}
+                  {new Date(node.createdAt).toLocaleDateString()}
                 </span>
               </div>
             </div>

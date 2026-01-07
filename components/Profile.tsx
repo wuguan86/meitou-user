@@ -11,16 +11,17 @@ interface ProfileProps {
   onSelectAsset: (asset: any) => void;
   onPublish: (asset: UserAsset) => void;
   onEditProfile: () => void;
+  refreshKey?: number;
 }
 
-const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, onPublish, onEditProfile }) => {
+const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, onPublish, onEditProfile, refreshKey }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'image' | 'video'>('all'); // Removed 'audio' as it's not in generation records yet
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadRecords();
-  }, [activeTab]);
+  }, [activeTab, refreshKey]);
 
   const loadRecords = async () => {
     if (!user.id) return;
@@ -56,15 +57,40 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
 
   const handlePublish = (e: React.MouseEvent, record: GenerationRecord) => {
     e.stopPropagation();
+    
+    let generationConfig;
+    let originalImageUrl;
+    try {
+      generationConfig = record.generationParams ? JSON.parse(record.generationParams) : undefined;
+      // Extract original image URL if available
+      if (generationConfig) {
+        // Try to detect original image from various possible fields
+        const img2imgRef = generationConfig.referenceImages?.[0] || generationConfig.urls?.[0];
+        const img2videoRef = generationConfig.referenceImage || generationConfig.image;
+        
+        if (record.type === 'img2img' || (record.type === 'image' && img2imgRef)) {
+          originalImageUrl = img2imgRef;
+        } else if (record.type === 'img2video' || (record.type === 'video' && img2videoRef)) {
+          originalImageUrl = img2videoRef;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse generationParams', e);
+    }
+
     // Adapt GenerationRecord to UserAsset for onPublish if needed, or update onPublish signature
     // For now, construct a minimal UserAsset-like object
     const asset: any = {
-        id: record.id,
+        id: String(record.id),
         url: record.contentUrl,
         type: record.fileType as any,
+        name: record.prompt, // Fix: Add name property required by PublishModal
         title: record.prompt,
         thumbnail: record.thumbnailUrl,
-        generationRecordId: record.id
+        generationRecordId: record.id,
+        generationType: record.type as any,
+        generationConfig,
+        originalImageUrl
     };
     onPublish(asset);
   };
@@ -170,14 +196,42 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
               <div 
                 key={record.id}
                 className="group relative aspect-square bg-[#151929] rounded-xl overflow-hidden border border-white/5 hover:border-[#2cc2f5]/50 transition-all cursor-pointer"
-                onClick={() => onSelectAsset({
-                    id: record.id,
+                onClick={() => {
+                  let originalImageUrl;
+                  let generationConfig;
+                  try {
+                    generationConfig = record.generationParams ? JSON.parse(record.generationParams) : undefined;
+                    if (generationConfig) {
+                      // Try to detect original image from various possible fields
+                      const img2imgRef = generationConfig.referenceImages?.[0] || generationConfig.urls?.[0];
+                      const img2videoRef = generationConfig.referenceImage || generationConfig.image;
+                      
+                      if (record.type === 'img2img' || (record.type === 'image' && img2imgRef)) {
+                        originalImageUrl = img2imgRef;
+                      } else if (record.type === 'img2video' || (record.type === 'video' && img2videoRef)) {
+                        originalImageUrl = img2videoRef;
+                      }
+                    }
+                  } catch (e) {
+                    console.warn('Failed to parse params', e);
+                  }
+
+                  onSelectAsset({
+                    id: String(record.id),
                     url: record.contentUrl,
                     type: record.fileType,
+                    name: record.prompt,
                     title: record.prompt,
                     thumbnail: record.thumbnailUrl,
-                    generationParams: record.generationParams
-                })}
+                    generationRecordId: record.id,
+                    createdAt: new Date(record.createdAt).getTime(),
+                    generationParams: record.generationParams,
+                    generationType: record.type,
+                    generationConfig,
+                    isPublish: record.isPublish === '1',
+                    originalImageUrl
+                })
+              }}
               >
                 {/* Thumbnail / Content */}
                 {record.thumbnailUrl || record.contentUrl ? (
@@ -207,6 +261,15 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                 {record.status === 'failed' && (
                   <div className="absolute top-2 right-2 px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded border border-red-500/20">
                     失败
+                  </div>
+                )}
+
+                {/* Generating Overlay */}
+                {(record.status === 'processing' || record.status === 'running') && (
+                  <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-10 p-4">
+                    <div className="bg-black/40 px-4 py-3 rounded-xl border border-white/10 backdrop-blur-md">
+                      <p className="text-white/70 text-xs font-medium text-center">内容正在生成<br/>请稍后查看</p>
+                    </div>
                   </div>
                 )}
 

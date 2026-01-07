@@ -163,13 +163,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user, onUp
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl animate-in">
-      <div className="bg-[#0d1121] border border-white/10 w-full max-w-xl rounded-[3rem] overflow-hidden flex flex-col shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white transition-colors">
+      <div className="bg-[#0d1121] border border-white/10 w-full max-w-xl rounded-[3rem] overflow-hidden flex flex-col shadow-2xl relative max-h-[90vh]">
+        <button onClick={onClose} className="absolute top-8 right-8 z-10 p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white transition-colors">
           <X className="w-6 h-6" />
         </button>
 
-        <div className="p-12">
-          <div className="flex items-center space-x-6 mb-12">
+        <div className="p-8 md:p-12 overflow-y-auto flex-1 w-full custom-scrollbar">
+          <div className="flex items-center space-x-6 mb-8 md:mb-12">
             <div className="relative group">
               <img 
                 src={avatarPreviewUrl || user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 

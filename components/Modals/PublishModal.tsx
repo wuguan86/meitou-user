@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Send, CheckSquare, Square, Image as ImageIcon, FileText } from 'lucide-react';
-import { AssetNode, ImageGenerationConfig, VideoGenerationConfig } from '../../types';
+import { AssetNode } from '../../types';
 import * as publishAPI from '../../api/publish';
 import { message } from 'antd';
 import { publishGenerationRecord } from '../../api/generation';
@@ -14,7 +14,7 @@ interface PublishModalProps {
 }
 
 const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, userId }) => {
-  const [title, setTitle] = useState(asset.name);
+  const [title, setTitle] = useState(asset.name || '');
   const [description, setDescription] = useState('');
   const [sharePrompt, setSharePrompt] = useState(true);
   const [shareOriginal, setShareOriginal] = useState(true);
@@ -31,28 +31,6 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, 
     } else {
       return asset.originalImageUrl ? 'img2video' : 'txt2video';
     }
-  };
-
-  // 获取生成配置JSON字符串
-  const getGenerationConfigJson = (): string | undefined => {
-    if (asset.generationConfig) {
-      return JSON.stringify(asset.generationConfig);
-    }
-    
-    // 如果没有配置，根据prompt和originalImageUrl构建基本配置
-    const config: any = {
-      prompt: asset.prompt || '',
-    };
-    
-    if (asset.originalImageUrl) {
-      if (asset.type === 'image') {
-        (config as ImageGenerationConfig).referenceImages = [asset.originalImageUrl];
-      } else {
-        (config as VideoGenerationConfig).referenceImage = asset.originalImageUrl;
-      }
-    }
-    
-    return JSON.stringify(config);
   };
 
   const handlePublish = async () => {
@@ -72,10 +50,32 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, 
       let generationConfig: string | undefined = undefined;
 
       // 如果选择分享提示词，则包含生成配置
-      if (sharePrompt && asset.generationConfig) {
-        generationConfig = JSON.stringify(asset.generationConfig);
-      } else if (sharePrompt) {
-        generationConfig = getGenerationConfigJson();
+      if (sharePrompt) {
+        let configObj: any = asset.generationConfig ? { ...asset.generationConfig } : undefined;
+        
+        // 如果没有配置对象，尝试根据属性构建
+        if (!configObj) {
+           configObj = {
+             prompt: asset.prompt || '',
+           };
+           if (asset.originalImageUrl) {
+             if (asset.type === 'image') {
+               configObj.referenceImages = [asset.originalImageUrl];
+             } else {
+               configObj.referenceImage = asset.originalImageUrl;
+             }
+           }
+        }
+
+        // 如果不分享原图，移除参考图配置
+        if (!shareOriginal && configObj) {
+           if (configObj.referenceImages) delete configObj.referenceImages;
+           if (configObj.referenceImage) delete configObj.referenceImage;
+        }
+
+        if (configObj) {
+          generationConfig = JSON.stringify(configObj);
+        }
       }
 
       // 确定缩略图（如果有缩略图则使用，否则：图片使用原图，视频留空让后端或前端处理默认逻辑）

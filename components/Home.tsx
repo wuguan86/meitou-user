@@ -21,6 +21,9 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
   // activeTab removed, default to 'all'
   const [inspirations, setInspirations] = useState<Inspiration[]>([]); // 灵感广场数据
   const [loadingInspirations, setLoadingInspirations] = useState(true); // 加载灵感广场状态
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [richTextModal, setRichTextModal] = useState<{
     isOpen: boolean;
     content: string;
@@ -138,89 +141,112 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
   ];
 
   // 从API加载灵感广场内容
-  useEffect(() => {
-    const loadInspirations = async () => {
-      try {
+  const loadInspirations = async (currentPage: number, isLoadMore: boolean = false) => {
+    try {
+      if (isLoadMore) {
+        setLoadingMore(true);
+      } else {
         setLoadingInspirations(true);
-        // 获取发布内容列表
-        const contents = await publishAPI.getPublishedContents('all');
+      }
+      
+      // 获取发布内容列表
+      const result = await publishAPI.getPublishedContents('all', currentPage, 20, userId);
+      const contents = result.records;
+      
+      // 转换为Inspiration格式
+      const inspirationList: Inspiration[] = contents.map((content) => {
+        // 解析生成配置获取prompt和完整配置
+        let prompt = '';
+        let originalImageUrl: string | undefined = undefined;
+        let generationConfig: any = undefined;
         
-        // 转换为Inspiration格式
-        const inspirationList: Inspiration[] = contents.map((content) => {
-          // 解析生成配置获取prompt和完整配置
-          let prompt = '';
-          let originalImageUrl: string | undefined = undefined;
-          let generationConfig: any = undefined;
-          
-          if (content.generationConfig) {
-            try {
-              const config = JSON.parse(content.generationConfig);
-              prompt = config.prompt || '';
-              generationConfig = config; // 保存完整的配置对象
-              
-              // 对于图生图/图生视频，获取参考图片
-              if (content.generationType === 'img2img' && config.referenceImages && config.referenceImages.length > 0) {
-                originalImageUrl = config.referenceImages[0];
-              } else if (content.generationType === 'img2video' && config.referenceImage) {
-                originalImageUrl = config.referenceImage;
-              }
-            } catch (e) {
-              console.error('解析生成配置失败:', e);
+        if (content.generationConfig) {
+          try {
+            const config = JSON.parse(content.generationConfig);
+            prompt = config.prompt || '';
+            generationConfig = config; // 保存完整的配置对象
+            
+            // 对于图生图/图生视频，获取参考图片
+            const img2imgRef = config.referenceImages?.[0] || config.urls?.[0];
+            const img2videoRef = config.referenceImage || config.image;
+            
+            if (content.generationType === 'img2img' || (content.type === 'image' && img2imgRef)) {
+              originalImageUrl = img2imgRef;
+            } else if (content.generationType === 'img2video' || (content.type === 'video' && img2videoRef)) {
+              originalImageUrl = img2videoRef;
             }
+          } catch (e) {
+            console.error('解析生成配置失败:', e);
           }
-          
-          // 瀑布流布局，不设置固定高度
-          const height = '';
-          
-          return {
-            id: content.id,
-            title: content.title,
-            user: content.userName,
-            avatar: content.userAvatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${content.userId}`,
-            likes: content.likeCount || 0,
-            img: content.thumbnail || content.contentUrl,
-            height: height,
-            desc: content.description,
-            prompt: prompt,
-            originalImageUrl: originalImageUrl,
-            type: content.type,
-            generationType: content.generationType as any,
-            generationConfig: generationConfig, // 保存完整的生成配置
-            publishedAt: content.publishedAt,
-            userId: content.userId,
-            contentUrl: content.contentUrl,
-            isLiked: false, // 稍后通过API获取点赞状态
-          };
-        });
-        
-        // 获取点赞状态（如果用户已登录）
-        if (userId) {
-          const likedSet = new Set<number>();
-          for (const inspiration of inspirationList) {
-            try {
-              const likeStatus = await publishAPI.getLikeStatus(userId, inspiration.id);
-              if (likeStatus.isLiked) {
-                likedSet.add(inspiration.id);
-                inspiration.isLiked = true;
-              }
-            } catch (e) {
-              console.error('获取点赞状态失败:', e);
-            }
-          }
-          setLikedIds(likedSet);
         }
         
+        // 瀑布流布局，不设置固定高度
+        const height = '';
+        
+        return {
+          id: content.id,
+          title: content.title,
+          user: content.userName,
+          avatar: content.userAvatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${content.userId}`,
+          likes: content.likeCount || 0,
+          img: content.thumbnail || content.contentUrl,
+          height: height,
+          desc: content.description,
+          prompt: prompt,
+          originalImageUrl: originalImageUrl,
+          type: content.type,
+          generationType: content.generationType as any,
+          generationConfig: generationConfig, // 保存完整的生成配置
+          publishedAt: content.publishedAt,
+          userId: content.userId,
+          contentUrl: content.contentUrl,
+          isLiked: content.isLiked || false, // 直接使用后端返回的状态
+        };
+      });
+      
+      if (isLoadMore) {
+        setInspirations(prev => [...prev, ...inspirationList]);
+      } else {
         setInspirations(inspirationList);
-      } catch (error) {
-        console.error('加载灵感广场失败:', error);
-        setInspirations([]);
-      } finally {
-        setLoadingInspirations(false);
       }
-    };
-    
-    loadInspirations();
+      
+      // 更新likedIds集合
+      const newLikedIds = new Set(isLoadMore ? likedIds : []);
+      inspirationList.forEach(item => {
+        if (item.isLiked) {
+          newLikedIds.add(item.id);
+        }
+      });
+      setLikedIds(newLikedIds);
+      
+      // 检查是否还有更多数据
+      setHasMore(currentPage < result.pages);
+      
+    } catch (error) {
+      console.error('加载灵感广场失败:', error);
+      if (!isLoadMore) {
+        setInspirations([]);
+      }
+    } finally {
+      setLoadingInspirations(false);
+      setLoadingMore(false);
+    }
+  };
+
+  // 初始加载
+  useEffect(() => {
+    setPage(1);
+    loadInspirations(1, false);
   }, [userId]);
+
+  // 加载更多
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      loadInspirations(nextPage, true);
+    }
+  };
 
   // 处理广告点击
   const handleAdClick = (slide: typeof slides[0]) => {
@@ -330,8 +356,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
       {/* Creative Inspiration */}
       <section>
         <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center space-x-3">
-            <div className="w-1.5 h-8 bg-[#ff2e8c] rounded-full"></div>
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="w-1 sm:w-1.5 h-6 sm:h-8 brand-gradient rounded-full"></div>
             <h3 className="text-2xl font-black tracking-tight">灵感广场</h3>
           </div>
         </div>
@@ -347,56 +373,70 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
             暂无内容
           </div>
         ) : (
-          <div className="columns-1 sm:columns-2 lg:columns-4 gap-6">
-            {inspirations.map((item) => (
-            <div 
-              key={item.id} 
-              onClick={() => onSelectWork(item)}
-              className="break-inside-avoid relative group rounded-3xl overflow-hidden bg-[#0d1121] border border-white/5 shadow-xl transition-all hover:border-[#2cc2f5]/30 cursor-pointer mb-6"
-            >
-              {item.type === 'video' ? (
-                <div className="relative w-full">
-                  {item.img && item.img !== item.contentUrl ? (
-                    <img 
-                      src={item.img} 
-                      className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
-                      alt={item.title} 
-                    />
-                  ) : (
-                    <video 
-                      src={item.contentUrl} 
-                      className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
-                    />
-                  )}
-                  <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 flex items-center justify-center pointer-events-none">
-                    <PlaySquare className="w-4 h-4 text-white/90" />
+          <div className="flex flex-col space-y-8">
+            <div className="columns-1 sm:columns-2 lg:columns-4 gap-[3px]">
+              {inspirations.map((item) => (
+              <div 
+                key={item.id} 
+                onClick={() => onSelectWork(item)}
+                className="break-inside-avoid relative group rounded-3xl overflow-hidden bg-[#0d1121] border border-white/5 shadow-xl transition-all hover:border-[#2cc2f5]/30 cursor-pointer mb-[3px]"
+              >
+                {item.type === 'video' ? (
+                  <div className="relative w-full">
+                    {item.img && item.img !== item.contentUrl ? (
+                      <img 
+                        src={item.img} 
+                        className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
+                        alt={item.title} 
+                      />
+                    ) : (
+                      <video 
+                        src={item.contentUrl} 
+                        className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                      />
+                    )}
+                    <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 flex items-center justify-center pointer-events-none">
+                      <PlaySquare className="w-4 h-4 text-white/90" />
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
-                <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <img src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
-                    <span className="text-[11px] font-black text-white">{item.user}</span>
+                ) : (
+                  <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
+                  <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <img src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
+                      <span className="text-[11px] font-black text-white">{item.user}</span>
+                    </div>
+                    <button 
+                      onClick={(e) => toggleLike(e, item.id)}
+                      className="flex items-center space-x-1.5 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/5 hover:bg-white/10 transition-colors"
+                    >
+                      <Heart className={`w-3 h-3 ${likedIds.has(item.id) || item.isLiked ? 'text-[#ff2e8c] fill-[#ff2e8c]' : 'text-gray-400'}`} />
+                      <span className="text-[10px] text-white font-black">{item.likes}</span>
+                    </button>
                   </div>
-                  <button 
-                    onClick={(e) => toggleLike(e, item.id)}
-                    className="flex items-center space-x-1.5 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/5 hover:bg-white/10 transition-colors"
-                  >
-                    <Heart className={`w-3 h-3 ${likedIds.has(item.id) || item.isLiked ? 'text-[#ff2e8c] fill-[#ff2e8c]' : 'text-gray-400'}`} />
-                    <span className="text-[10px] text-white font-black">{item.likes}</span>
-                  </button>
                 </div>
               </div>
+              ))}
             </div>
-            ))}
+            
+            {hasMore && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2 rounded-full bg-white/5 border border-white/10 text-gray-400 text-sm hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingMore ? '加载中...' : '加载更多'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </section>

@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [selectedAsset, setSelectedAsset] = useState<AssetNode | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // 移动端菜单状态
+  const [refreshProfileKey, setRefreshProfileKey] = useState(0); // 个人中心刷新key
 
   const [user, setUser] = useState<User>({
     id: '8829103',
@@ -87,6 +88,10 @@ const App: React.FC = () => {
   const handleUpdateUser = (updatedInfo: Partial<User>) => {
     setUser(prev => ({ ...prev, ...updatedInfo }));
   };
+
+  const handleDeductPoints = (points: number) => {
+    setUser(prev => ({ ...prev, points: prev.points - points }));
+  };
   
   const openPublishModal = () => {
     if (selectedAsset) {
@@ -106,11 +111,11 @@ const App: React.FC = () => {
     switch (currentPage) {
       case 'home': return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} />;
       case 'assets': return <Assets onSelectAsset={setSelectedAsset} />;
-      case 'image-analysis': return <ImageAnalysis />;
-      case 'text-to-image': return <TextToImage onSelectAsset={setSelectedAsset} />;
-      case 'text-to-video': return <TextToVideo onSelectAsset={setSelectedAsset} />;
-      case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} />;
-      case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} />;
+      case 'image-analysis': return <ImageAnalysis onDeductPoints={handleDeductPoints} />;
+      case 'text-to-image': return <TextToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
+      case 'text-to-video': return <TextToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
+      case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
+      case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
       case 'voice-clone': return <VoiceClone />;
       case 'profile': return (
         <Profile 
@@ -122,6 +127,7 @@ const App: React.FC = () => {
             setIsPublishing(true);
           }}
           onEditProfile={() => setIsProfileOpen(true)}
+          refreshKey={refreshProfileKey}
         />
       );
       default: return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} />;
@@ -182,6 +188,7 @@ const App: React.FC = () => {
           asset={selectedAsset}
           onClose={() => setSelectedAsset(null)}
           onPublish={openPublishModal}
+          onNavigate={setCurrentPage}
           // 从资产页面选择的图片不显示发布和重绘按钮，文生图和图生图生成的图片显示
           showActions={currentPage !== 'assets'}
         />
@@ -194,6 +201,7 @@ const App: React.FC = () => {
           onSuccess={() => {
             setIsPublishing(false);
             setSelectedAsset(null);
+            setRefreshProfileKey(prev => prev + 1);
           }}
           userId={user.id ? parseInt(user.id) : undefined}
         />

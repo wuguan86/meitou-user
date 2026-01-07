@@ -11,6 +11,14 @@ export interface RechargeConfigResponse {
   options: RechargeOption[]; // 充值选项列表
   allowCustom: boolean; // 是否启用自定义金额
   enabledPaymentMethods?: string[]; // 启用的支付方式列表
+  bankInfo?: BankInfo; // 对公转账信息
+}
+
+// 银行信息接口
+export interface BankInfo {
+  bankName: string; // 开户银行
+  accountName: string; // 账户名称
+  bankAccount: string; // 银行账号
 }
 
 // 充值选项

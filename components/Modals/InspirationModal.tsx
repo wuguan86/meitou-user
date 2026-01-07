@@ -19,10 +19,10 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
 
   const handleOriginalEnter = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    // 显示在缩略图上方，居中对齐
+    // 显示在缩略图左侧，垂直居中
     setOriginalPos({
-        x: rect.left + rect.width / 2,
-        y: rect.top - 10
+        x: rect.left - 10,
+        y: rect.top + rect.height / 2
     });
     setShowOriginal(true);
   };
@@ -159,14 +159,14 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
       {/* 悬浮原图大图展示 */}
       {showOriginal && workData?.originalImageUrl && (
         <div 
-            className="fixed z-[100] pointer-events-none animate-in fade-in zoom-in duration-200"
+            className="fixed z-[100] pointer-events-none"
             style={{
                 left: originalPos.x,
                 top: originalPos.y,
-                transform: 'translate(-50%, -100%)', // 居中并向上偏移
+                transform: 'translate(-100%, -50%)', // 左侧显示，垂直居中
             }}
         >
-            <div className="bg-black p-2 rounded-xl border border-white/20 shadow-2xl mb-2">
+            <div className="bg-black p-2 rounded-xl border border-white/20 shadow-2xl mb-2 animate-in fade-in zoom-in duration-200">
                 <img 
                     src={workData.originalImageUrl} 
                     alt="原图大图" 

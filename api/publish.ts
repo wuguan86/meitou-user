@@ -23,6 +23,16 @@ export interface PublishedContent {
   publishedAt: string;
   createdAt: string;
   updatedAt: string;
+  isLiked?: boolean; // 是否已点赞（非数据库字段）
+}
+
+// 分页响应接口
+export interface PageResult<T> {
+  records: T[];
+  total: number;
+  size: number;
+  current: number;
+  pages: number;
 }
 
 // 发布内容请求接口
@@ -58,17 +68,32 @@ export const publishContent = async (
 };
 
 /**
- * 获取发布内容列表
+ * 获取发布内容列表（分页）
  * @param type 类型筛选（all/image/video）
- * @returns 发布内容列表
+ * @param page 页码
+ * @param pageSize 每页数量
+ * @param userId 用户ID（可选，用于获取点赞状态）
+ * @returns 分页发布内容列表
  */
 export const getPublishedContents = async (
-  type: 'all' | 'image' | 'video' = 'all'
-): Promise<PublishedContent[]> => {
+  type: 'all' | 'image' | 'video' = 'all',
+  page: number = 1,
+  pageSize: number = 20,
+  userId?: number
+): Promise<PageResult<PublishedContent>> => {
   const params = new URLSearchParams();
   params.append('type', type);
+  params.append('page', page.toString());
+  params.append('pageSize', pageSize.toString());
 
-  return get<PublishedContent[]>(`/app/published-contents?${params.toString()}`);
+  const headers: HeadersInit = {};
+  if (userId) {
+    headers['X-User-Id'] = userId.toString();
+  }
+
+  return get<PageResult<PublishedContent>>(`/app/published-contents?${params.toString()}`, {
+    headers
+  });
 };
 
 /**

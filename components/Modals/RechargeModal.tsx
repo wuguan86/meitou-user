@@ -34,6 +34,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
   const [isPaying, setIsPaying] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<RechargeOrderResponse | null>(null);
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null);
+  const [showBankInfo, setShowBankInfo] = useState(false); // 是否显示对公账户信息
   
   // 轮询相关
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -68,6 +69,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
       setIsPaying(false);
       setCurrentOrder(null);
       setPaymentQrCode(null);
+      setShowBankInfo(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
@@ -459,7 +461,10 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
                       {/* 对公转账 */}
                       {(!config.enabledPaymentMethods || config.enabledPaymentMethods.includes('bank_transfer')) && (
                         <button 
-                          onClick={() => setPaymentType('bank_transfer')}
+                          onClick={() => {
+                            setPaymentType('bank_transfer');
+                            setShowBankInfo(true);
+                          }}
                           disabled={isPaying}
                           className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all group ${
                             paymentType === 'bank_transfer' ? 'border-[#2cc2f5] bg-[#2cc2f5]/5' : 'border-white/5 bg-[#0d1121] hover:bg-white/[0.02]'
@@ -497,10 +502,10 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
             
             {paymentType === 'bank_transfer' ? (
               <button 
-                disabled
-                className="w-full bg-gray-700 py-5 rounded-[2rem] font-black text-gray-400 shadow-none cursor-not-allowed tracking-[0.3em] text-lg"
+                onClick={() => setShowBankInfo(true)}
+                className="w-full brand-gradient py-5 rounded-[2rem] font-black text-white shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all tracking-[0.3em] text-lg"
               >
-                请联系客服充值
+                查看对公账户信息
               </button>
             ) : (
               <button 
@@ -517,6 +522,62 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
           </div>
         )}
       </div>
+      
+      {/* 对公账户信息弹窗 */}
+      {showBankInfo && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#151929] border border-white/10 w-full max-w-md rounded-[2.5rem] overflow-hidden flex flex-col shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-white/5 flex items-center justify-between bg-gradient-to-br from-white/[0.02] to-transparent">
+              <h3 className="text-xl font-black text-white tracking-tight">配置对公转账</h3>
+              <button 
+                onClick={() => setShowBankInfo(false)} 
+                className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-all"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">开户银行</label>
+                  <div className="bg-[#0d1121] border border-white/5 rounded-2xl p-4 text-white font-bold text-lg select-all">
+                    {config?.bankInfo?.bankName || '未配置'}
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">银行账号</label>
+                  <div className="bg-[#0d1121] border border-white/5 rounded-2xl p-4 text-white font-bold text-lg select-all">
+                    {config?.bankInfo?.bankAccount || '未配置'}
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">账户名称</label>
+                  <div className="bg-[#0d1121] border border-white/5 rounded-2xl p-4 text-white font-bold text-lg select-all">
+                    {config?.bankInfo?.accountName || '未配置'}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="pt-4">
+                <div className="flex items-center justify-center space-x-2 text-yellow-500 mb-6">
+                  <span className="text-sm font-bold">充值前请联系客服处理</span>
+                </div>
+                
+                <button 
+                  onClick={() => setShowBankInfo(false)}
+                  className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-white shadow-lg shadow-blue-600/20 transition-all text-sm tracking-widest"
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

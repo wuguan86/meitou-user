@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User as UserIcon, ShieldCheck, Phone, Mail, Lock, Key, ChevronRight, X, Heart, Gift, Check } from 'lucide-react';
 import { sendCode, loginByCode, loginByPassword, setPassword as apiSetPassword } from '../api/auth';
+import { getCurrentSite } from '../api/site';
 import { ApiError } from '../api';
 import type { User } from '../types';
 
@@ -9,7 +10,7 @@ interface LoginProps {
   onLoginSuccess: (userData: Partial<User>) => void;
 }
 
-const POLICY_TEXTS = {
+const DEFAULT_POLICY_TEXTS = {
   service: `用户服务协议\n\n1. 账号注册与使用\n您在注册 Meji AI 账号时，应当提供真实、准确、完整的个人资料。账号所有权归本公司所有，用户仅享有使用权...\n\n2. AI 生成内容规范\n您在使用 AI 工具生成的任何内容均需符合法律法规，不得利用本服务生成暴力、色情、侵权或其他非法信息...\n\n3. 知识产权保护\nMeji AI 尊重并致力于保护知识产权。您在平台创作的内容归属由法律及本协议具体条款界定...\n\n4. 免责声明\nAI 生成结果受算法及模型局限，本平台不保证生成内容的绝对准确性与适用性，由用户自行判断承担风险...\n\n5. 协议修改\n我们保留随时修改本协议的权利，修改后将在显著位置予以公示，继续使用即视为同意更新。`,
   privacy: `隐私政策\n\n1. 我们如何收集信息\n我们可能会收集您的手机号、邮箱、设备信息及创作日志。这些信息用于身份验证、服务优化及安全防御...\n\n2. 信息的使用与共享\n我们承诺不会向任何无关第三方披露您的个人信息，除非经法律许可或您的明确授权...\n\n3. 数据存储安全\nMeji AI 使用高级加密技术存储您的数据，并在服务器集群中实施多层防火墙机制...\n\n4. 您的权利\n您可以随时查询、更正或申请注销您的账号及关联隐私数据...\n\n5. 未成年人保护\n我们非常重视未成年人的隐私保护，若您为未成年人，请在监护人指导下使用本服务。`,
   notice: `AI功能使用须知\n\n1. 算法备案说明\nMeji AI 所有生成算法均已按国家要求完成相关备案公示，并在模型训练中采用了合规数据集...\n\n2. 标识要求\n根据相关法规，对于由 AI 深度合成生成的视频及精细图像，本平台可能会自动添加隐形水印或标识...\n\n3. 使用边界\n严禁利用本平台进行虚假新闻编造、恶意换脸、政治煽动等违规行为...\n\n4. 服务调用额度\n免费用户享有每日固定次数的生成额度，超出部分需通过积分兑换或会员订阅获取...`
@@ -27,7 +28,15 @@ const Modal = ({ isOpen, title, content, onClose }: { isOpen: boolean; title: st
           </button>
         </div>
         <div className="p-8 overflow-y-auto max-h-[60vh] text-gray-400 text-sm leading-relaxed custom-scrollbar">
-          {content.split('\n').map((line, i) => <p key={i} className="mb-4">{line}</p>)}
+          {/* 支持HTML内容的显示 */}
+          {content.includes('<') ? (
+            <div 
+              className="[&>p]:mb-4 [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:mb-4 [&>ol]:list-decimal [&>ol]:pl-5 [&>ol]:mb-4 [&>h1]:text-xl [&>h1]:font-bold [&>h1]:mb-4 [&>h2]:text-lg [&>h2]:font-bold [&>h2]:mb-3 [&>h3]:font-bold [&>h3]:mb-2"
+              dangerouslySetInnerHTML={{ __html: content }} 
+            />
+          ) : (
+            content.split('\n').map((line, i) => <p key={i} className="mb-4">{line}</p>)
+          )}
         </div>
         <div className="p-6 border-t border-white/5 flex justify-center">
           <button onClick={onClose} className="brand-gradient px-12 py-3 rounded-xl font-black text-sm hover:scale-105 transition-transform shadow-lg glow-pink">我已阅读并知悉</button>
@@ -44,10 +53,31 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState(''); // 密码（密码登录模式）
   const [loginMode, setLoginMode] = useState<'code' | 'password'>('code'); // 登录模式
   const [activeModal, setActiveModal] = useState<'service' | 'privacy' | 'notice' | null>(null); // 协议弹窗
+  const [policyTexts, setPolicyTexts] = useState(DEFAULT_POLICY_TEXTS); // 协议内容
   const [countdown, setCountdown] = useState(0); // 验证码倒计时
   const [loading, setLoading] = useState(false); // 登录加载状态
   const [sendingCode, setSendingCode] = useState(false); // 发送验证码加载状态
   const [error, setError] = useState(''); // 错误提示
+  
+  // 加载站点配置
+  useEffect(() => {
+    const fetchSiteConfig = async () => {
+      try {
+        const site = await getCurrentSite();
+        if (site) {
+          setPolicyTexts(prev => ({
+            ...prev,
+            service: site.userAgreement || prev.service,
+            privacy: site.privacyPolicy || prev.privacy
+          }));
+        }
+      } catch (error) {
+        console.error('获取站点配置失败:', error);
+      }
+    };
+    fetchSiteConfig();
+  }, []);
+
   
   // 设置密码相关状态
   const [isSettingPassword, setIsSettingPassword] = useState(false);
@@ -493,7 +523,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       <Modal 
         isOpen={!!activeModal} 
         title={activeModal ? (activeModal === 'service' ? '服务协议' : activeModal === 'privacy' ? '隐私政策' : '使用须知') : ''} 
-        content={activeModal ? POLICY_TEXTS[activeModal] : ''} 
+        content={activeModal ? policyTexts[activeModal] : ''} 
         onClose={() => setActiveModal(null)} 
       />
     </div>

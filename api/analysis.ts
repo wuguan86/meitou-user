@@ -1,7 +1,8 @@
 /**
  * 图视分析相关 API
  */
-import { post } from './index';
+import { post, get } from './index';
+import { PlatformModelResponse } from './generation';
 
 // 图片分析请求接口
 export interface ImageAnalysisRequest {
@@ -40,5 +41,21 @@ export const analyzeImage = async (request: ImageAnalysisRequest): Promise<Analy
  */
 export const analyzeVideo = async (request: VideoAnalysisRequest): Promise<AnalysisResponse> => {
   return await post<AnalysisResponse>('/app/analysis/video', request);
+};
+
+/**
+ * 获取图片分析平台的模型列表
+ * @returns 平台模型列表
+ */
+export const getImageAnalysisModels = async (): Promise<PlatformModelResponse[]> => {
+  return await get<PlatformModelResponse[]>('/app/image-analysis/models');
+};
+
+/**
+ * 获取视频分析平台的模型列表
+ * @returns 平台模型列表
+ */
+export const getVideoAnalysisModels = async (): Promise<PlatformModelResponse[]> => {
+  return await get<PlatformModelResponse[]>('/app/image-analysis/video/models');
 };
 
