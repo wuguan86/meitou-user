@@ -181,38 +181,44 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
                   <RefreshCw className="w-4 h-4" />
                   <span>重绘</span>
                 </button>
+                {asset.status !== 'failed' && (
+                  <button 
+                    onClick={handleDownload}
+                    className="flex items-center space-x-2 text-sm font-bold text-gray-400 hover:text-white">
+                    <Download className="w-4 h-4" />
+                    <span>下载</span>
+                  </button>
+                )}
+              </div>
+              {asset.status !== 'failed' && (
+                asset.isPublish ? (
+                  <button 
+                    disabled
+                    className="bg-white/10 px-8 py-3 rounded-xl font-black text-sm text-gray-400 cursor-not-allowed flex items-center space-x-2 border border-white/5">
+                    <Send className="w-4 h-4" />
+                    <span>已发布</span>
+                  </button>
+                ) : (
+                  <button 
+                    onClick={onPublish}
+                    className="brand-gradient px-8 py-3 rounded-xl font-black text-sm text-white shadow-lg glow-pink hover:scale-105 transition-transform flex items-center space-x-2">
+                    <Send className="w-4 h-4" />
+                    <span>发布</span>
+                  </button>
+                )
+              )}
+            </>
+          ) : (
+            // 从资产选择的图片只显示下载按钮
+            <div className="flex items-center space-x-4">
+              {asset.status !== 'failed' && (
                 <button 
                   onClick={handleDownload}
                   className="flex items-center space-x-2 text-sm font-bold text-gray-400 hover:text-white">
                   <Download className="w-4 h-4" />
                   <span>下载</span>
                 </button>
-              </div>
-              {asset.isPublish ? (
-                <button 
-                  disabled
-                  className="bg-white/10 px-8 py-3 rounded-xl font-black text-sm text-gray-400 cursor-not-allowed flex items-center space-x-2 border border-white/5">
-                  <Send className="w-4 h-4" />
-                  <span>已发布</span>
-                </button>
-              ) : (
-                <button 
-                  onClick={onPublish}
-                  className="brand-gradient px-8 py-3 rounded-xl font-black text-sm text-white shadow-lg glow-pink hover:scale-105 transition-transform flex items-center space-x-2">
-                  <Send className="w-4 h-4" />
-                  <span>发布</span>
-                </button>
               )}
-            </>
-          ) : (
-            // 从资产选择的图片只显示下载按钮
-            <div className="flex items-center space-x-4">
-              <button 
-                onClick={handleDownload}
-                className="flex items-center space-x-2 text-sm font-bold text-gray-400 hover:text-white">
-                <Download className="w-4 h-4" />
-                <span>下载</span>
-              </button>
             </div>
           )}
         </div>

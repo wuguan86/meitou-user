@@ -18,6 +18,7 @@ export interface AssetNode {
   generationType?: 'txt2img' | 'img2img' | 'txt2video' | 'img2video';
   generationConfig?: ImageGenerationConfig | VideoGenerationConfig;
   isPublish?: boolean;
+  status?: string;
 }
 
 export interface User {

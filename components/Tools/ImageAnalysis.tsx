@@ -4,7 +4,7 @@ import { message } from 'antd';
 import { Upload, Search, Image as ImageIcon, Video, FileText, Zap, ChevronRight, X, RefreshCcw, Wand2, Gem } from 'lucide-react';
 import * as analysisAPI from '../../api/analysis';
 import * as uploadAPI from '../../api/upload';
-import { PlatformModelResponse } from '../../api/generation';
+import { PlatformModelResponse, optimizePrompt } from '../../api/generation';
 import { getApiBaseUrl } from '../../api/config';
 
 interface ImageAnalysisProps {
@@ -17,6 +17,7 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
   const [rawFile, setRawFile] = useState<File | null>(null);
   const [direction, setDirection] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
   const [result, setResult] = useState('');
   const [model, setModel] = useState('');
   const [availableModels, setAvailableModels] = useState<PlatformModelResponse['models']>([]);
@@ -64,6 +65,91 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
     
     fetchModels();
   }, [mode]);
+
+  const optimizeSystemPrompt = useMemo(() => {
+    if (mode === 'video') {
+      return [
+        '你是一位资深的多模态提示词工程师，专门为“视频内容分析”编写高质量分析指令。',
+        '请将用户输入的简单想法，优化为一段可直接用于视频分析模型的中文分析指令。',
+        '',
+        '优化目标：',
+        '1. 让模型明确分析任务、关注点与输出结构。',
+        '2. 输出可直接复制使用的分析指令文本，越清晰越好。',
+        '',
+        '输出要求：',
+        '1. 只输出优化后的分析指令纯文本。',
+        '2. 禁止输出JSON、代码块、标题解释或额外说明。',
+        '3. 默认输出为结构化要求（例如：按要点/步骤/表格化字段描述，但仍是纯文本）。',
+        '4. 若用户未指定，默认包含：内容总结、关键信息抽取、结构拆解、亮点/问题、可复用脚本或改写建议。'
+      ].join('\n');
+    }
+
+    return [
+      '你是一位资深的多模态提示词工程师，专门为“图片内容分析”编写高质量分析指令。',
+      '请将用户输入的简单想法，优化为一段可直接用于图片分析模型的中文分析指令。',
+      '',
+      '优化目标：',
+      '1. 让模型明确分析任务、关注点与输出结构。',
+      '2. 输出可直接复制使用的分析指令文本，越清晰越好。',
+      '',
+      '输出要求：',
+      '1. 只输出优化后的分析指令纯文本。',
+      '2. 禁止输出JSON、代码块、标题解释或额外说明。',
+      '3. 默认输出为结构化要求（例如：按要点/步骤/字段描述，但仍是纯文本）。',
+      '4. 若用户未指定，默认包含：整体描述、主体/场景要素、细节观察、推断与不确定性提示、结论与建议。'
+    ].join('\n');
+  }, [mode]);
+
+  const handleOptimizeDirection = () => {
+    if (!direction.trim()) {
+      message.warning('请输入分析方向');
+      return;
+    }
+
+    const originalDirection = direction;
+    setOptimizing(true);
+    setDirection('');
+
+    let fullResponse = '';
+
+    optimizePrompt(
+      originalDirection,
+      (text) => {
+        fullResponse += text;
+        if (!fullResponse.trim().startsWith('{') && !fullResponse.trim().startsWith('```')) {
+          setDirection(prev => prev + text);
+        }
+      },
+      (err) => {
+        console.error(err);
+        message.error('优化提示词失败');
+        setDirection(originalDirection);
+        setOptimizing(false);
+      },
+      () => {
+        const trimmed = fullResponse.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('```')) {
+          try {
+            let cleaned = trimmed.replace(/```json\s*|\s*```/g, '').trim();
+            cleaned = cleaned.replace(/```\s*|\s*```/g, '').trim();
+
+            if (cleaned.startsWith('{')) {
+              const json = JSON.parse(cleaned);
+              const content = json.prompt || json.text || json.content || json.optimized_prompt || cleaned;
+              setDirection(typeof content === 'string' ? content : JSON.stringify(content));
+            } else {
+              setDirection(cleaned);
+            }
+          } catch (e) {
+            console.warn('解析优化结果失败，显示原始文本', e);
+            setDirection(trimmed);
+          }
+        }
+        setOptimizing(false);
+      },
+      { systemPrompt: optimizeSystemPrompt }
+    );
+  };
 
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,9 +404,13 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
                 className="w-full h-32 bg-[#060813] border border-white/5 rounded-2xl p-5 text-sm font-medium focus:border-cyan-500 outline-none transition-all placeholder:text-gray-700 leading-relaxed"
               />
               <div className="flex justify-end mt-2 px-2">
-                <button className="flex items-center space-x-2 text-[10px] text-cyan-400 hover:text-cyan-300 font-black uppercase tracking-widest group">
-                  <Wand2 className="w-3 h-3 group-hover:rotate-45 transition-transform" />
-                  <span>AI帮助优化提示词</span>
+                <button
+                  onClick={handleOptimizeDirection}
+                  disabled={optimizing}
+                  className={`flex items-center space-x-2 text-[10px] ${optimizing ? 'text-gray-500 cursor-not-allowed' : 'text-cyan-400 hover:text-cyan-300'} font-black uppercase tracking-widest group`}
+                >
+                  <Wand2 className={`w-3 h-3 ${optimizing ? 'animate-pulse' : 'group-hover:rotate-45'} transition-transform`} />
+                  <span>{optimizing ? '正在优化...' : 'AI帮助优化提示词'}</span>
                 </button>
               </div>
             </div>

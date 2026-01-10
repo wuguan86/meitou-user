@@ -81,7 +81,8 @@ const AssetPickerModal: React.FC<AssetPickerModalProps> = ({ isOpen, onClose, on
         name: folder.name,
         type: 'folder',
         createdAt: new Date(folder.createdAt).getTime(),
-        children: [] // 子节点会在进入文件夹时加载
+        children: [], // 子节点会在进入文件夹时加载
+        thumbnail: folder.thumbnail // 添加 thumbnail
       });
     });
     
@@ -199,8 +200,8 @@ const AssetPickerModal: React.FC<AssetPickerModalProps> = ({ isOpen, onClose, on
               {filteredNodes.map(node => (
                 <div key={node.id} onClick={() => handleNodeClick(node)} className="group cursor-pointer">
                   <div className="aspect-square rounded-2xl bg-[#0d1121] flex items-center justify-center mb-3 overflow-hidden border border-transparent group-hover:border-cyan-400 transition-all">
-                     {node.type === 'image' && node.url ? (
-                       <img src={node.url} alt={node.name} className="w-full h-full object-cover" />
+                     {(node.type === 'image' && node.url) || (node.type === 'folder' && node.thumbnail) ? (
+                       <img src={node.type === 'image' ? node.url : node.thumbnail} alt={node.name} className="w-full h-full object-cover" />
                      ) : (
                        getIcon(node.type)
                      )}

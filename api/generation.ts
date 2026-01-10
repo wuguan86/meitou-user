@@ -108,6 +108,12 @@ export interface TextToVideoRequest {
   shutProgress?: boolean; // 是否关闭进度回复
 }
 
+export interface CharacterItem {
+  url: string;
+  characterId?: string;
+  timestamps: string; // e.g. "0,3"
+}
+
 // 图生视频请求接口
 export interface ImageToVideoRequest {
   prompt: string; // 提示词
@@ -122,6 +128,7 @@ export interface ImageToVideoRequest {
   firstFrameUrl?: string; // 首帧图片URL
   lastFrameUrl?: string; // 尾帧图片URL
   urls?: string[]; // 参考图片URL列表
+  remixTargetId?: string; // remix目标id
   webHook?: string; // 回调地址
   shutProgress?: boolean; // 关闭进度回复
 }
@@ -133,7 +140,54 @@ export interface VideoGenerationResponse {
   status: string; // 状态：success-成功，processing-处理中，failed-失败
   errorMessage?: string; // 错误消息
   progress?: number; // 进度（0-100）
+  pid?: string; // 外部任务ID
+  failureReason?: string; // 失败原因
 }
+
+/**
+ * 保存角色视频请求接口
+ */
+export interface SaveCharacterRequest {
+  pid: string;
+  timestamps: string;
+  name?: string;
+}
+
+/**
+ * 保存角色视频
+ * @param request 请求参数
+ * @returns 保存结果
+ */
+export const saveCharacterVideo = async (request: SaveCharacterRequest): Promise<{ id: number; character_id: string }> => {
+  return await post<{ id: number; character_id: string }>('/app/character/save', request);
+};
+
+/**
+ * 角色接口
+ */
+export interface Character {
+  id: number;
+  name: string;
+  coverUrl?: string;
+  videoUrl?: string;
+  characterId?: string;
+}
+
+/**
+ * 获取用户角色列表
+ * @returns 角色列表
+ */
+export const getCharacters = async (): Promise<Character[]> => {
+  return await get<Character[]>('/app/character/list');
+};
+
+/**
+ * 删除角色
+ * @param id 角色ID
+ */
+export const deleteCharacter = async (id: number): Promise<void> => {
+  return await del(`/app/character/${id}`);
+};
 
 /**
  * 文生视频
@@ -185,6 +239,8 @@ export interface GenerationRecord {
   cost: number;
   createdAt: string;
   isPublish?: string; // 0-未发布，1-已发布
+  pid?: string;
+  failureReason?: string;
 }
 
 export interface Page<T> {
@@ -239,7 +295,11 @@ export const optimizePrompt = async (
   prompt: string,
   onData: (text: string) => void,
   onError: (err: any) => void,
-  onComplete: () => void
+  onComplete: () => void,
+  options?: {
+    model?: string;
+    systemPrompt?: string;
+  }
 ) => {
   try {
     const token = localStorage.getItem('app_token');
@@ -259,12 +319,12 @@ export const optimizePrompt = async (
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: options?.model || 'gpt-4o-mini',
         stream: true,
         messages: [
           { 
             role: 'system', 
-            content: '你是一位精通AI绘画的提示词工程师。请将用户的提示词优化为一段高质量的中文提示词，加入更多关于光影、风格、构图和氛围的细节描述。\n\n重要规则：\n1. 直接返回优化后的纯文本内容。\n2. 严禁输出JSON格式。\n3. 严禁包含Markdown代码块。\n4. 不要包含任何解释性文字。' 
+            content: options?.systemPrompt || '你是一位精通AI绘画的提示词工程师。请将用户的提示词优化为一段高质量的中文提示词，加入更多关于光影、风格、构图和氛围的细节描述。\n\n重要规则：\n1. 直接返回优化后的纯文本内容。\n2. 严禁输出JSON格式。\n3. 严禁包含Markdown代码块。\n4. 不要包含任何解释性文字。' 
           },
           { 
             role: 'user', 

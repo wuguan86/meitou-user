@@ -62,6 +62,21 @@ export const request = async <T>(
 
   // 检查响应状态
   if (!response.ok) {
+    if (response.status === 401) {
+      const token = localStorage.getItem('app_token');
+      if (token) {
+        localStorage.removeItem('app_token');
+        localStorage.removeItem('app_user_id');
+      }
+
+      const isAuthProbe = url.startsWith('/app/auth/me');
+      const msg = token ? '登录已过期，请重新登录' : '请先登录';
+      if (!isAuthProbe) {
+        message.warning(msg);
+      }
+      throw new ApiError(msg, 401);
+    }
+
     // 500 系统错误
     if (response.status >= 500) {
       message.error('系统繁忙，请稍后再试');
@@ -156,4 +171,3 @@ export const del = <T>(url: string, options?: RequestInit): Promise<T> => {
 };
 
 export default { get, post, postForm, put, delete: del };
-

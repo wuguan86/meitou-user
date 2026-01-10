@@ -27,7 +27,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
   const [generating, setGenerating] = useState(false);
   const [videos, setVideos] = useState<AssetNode[]>([]);
   const [model, setModel] = useState('');
-  const [duration, setDuration] = useState<string|number>('Auto');
+  const [duration, setDuration] = useState<string|number>(5);
   const [resolution, setResolution] = useState('Auto');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [ratiosOpen, setRatiosOpen] = useState(false);
@@ -60,8 +60,8 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
     : [{ label: '16:9' }, { label: '9:16' }, { label: '3:2' }, { label: '2:3' }, { label: '1:1' }];
 
   const availableDurations: (string|number)[] = currentModel?.durations && currentModel.durations.length > 0
-    ? ['Auto', ...currentModel.durations]
-    : ['Auto', 5, 10];
+    ? currentModel.durations
+    : [5, 10];
 
   const handleOptimizePrompt = () => {
     if (!prompt.trim()) {
@@ -131,10 +131,10 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
       if (currentModel.ratios && currentModel.ratios.length > 0 && !currentModel.ratios.includes(aspectRatio)) {
         setAspectRatio(currentModel.ratios[0]);
       }
-      // duration 检查比较复杂，因为有 'Auto'
+      // duration 检查
       if (currentModel.durations && currentModel.durations.length > 0) {
-        if (duration !== 'Auto' && typeof duration === 'number' && !currentModel.durations.includes(duration)) {
-           setDuration('Auto');
+        if (typeof duration === 'number' && !currentModel.durations.includes(duration)) {
+           setDuration(currentModel.durations[0]);
         }
       }
     }
@@ -186,7 +186,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
               if (config.model) setModel(config.model);
               if (config.resolution) setResolution(config.resolution || 'Auto');
               if (config.aspectRatio) setAspectRatio(config.aspectRatio || '16:9');
-              if (config.duration) setDuration(config.duration || 'Auto');
+              if (config.duration) setDuration(config.duration || 5);
               // 清除localStorage中的配置
               localStorage.removeItem('makeSimilarConfig');
             }
@@ -435,7 +435,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
                     onClick={() => setDuration(d)}
                     className={`relative flex-1 text-center py-2 text-sm font-bold rounded-xl transition-colors min-w-[60px] ${duration === d ? 'text-white' : 'text-gray-500 hover:bg-white/5'}`}
                    >
-                     {typeof d === 'number' ? `${d}s` : d}
+                     {`${d}s`}
                    </button>
                  ))}
                </div>

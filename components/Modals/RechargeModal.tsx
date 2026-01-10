@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { message } from 'antd';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { message, QRCode } from 'antd';
 import { X, Gem, Check, CreditCard, Wallet, Landmark } from 'lucide-react';
 import { User } from '../../types';
 import { 
@@ -189,7 +189,16 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
       // 解析支付参数
       try {
         const paymentParams = JSON.parse(orderResponse.paymentParams);
-        if (paymentParams.qrCodeUrl) {
+        if (paymentParams.paymentForm) {
+          const newWindow = window.open('', '_blank');
+          if (newWindow) {
+            newWindow.document.open();
+            newWindow.document.write(paymentParams.paymentForm);
+            newWindow.document.close();
+          } else {
+            message.warning('浏览器拦截了支付页面弹窗，请允许弹窗后重试');
+          }
+        } else if (paymentParams.qrCodeUrl) {
           setPaymentQrCode(paymentParams.qrCodeUrl);
         } else if (paymentParams.paymentUrl) {
           // 如果是支付链接，直接跳转
@@ -209,6 +218,18 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
     }
   };
   
+  const handleClose = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    setIsPaying(false);
+    setCurrentOrder(null);
+    setPaymentQrCode(null);
+    setShowBankInfo(false);
+    onClose();
+  }, [onClose]);
+
   // 开始轮询订单状态
   const startPolling = (orderNo: string) => {
     if (pollIntervalRef.current) {
@@ -219,7 +240,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
       try {
         const order = await queryOrder(orderNo);
         
-        if (order.status === 'paid') {
+          if (order.status === 'paid') {
           // 支付成功
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
@@ -233,10 +254,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
           message.success(`支付成功！已充值 ${order.points} 算力`);
           
           // 关闭弹窗
-          setIsPaying(false);
-          setCurrentOrder(null);
-          setPaymentQrCode(null);
-          onClose();
+          handleClose();
         } else if (order.status === 'failed' || order.status === 'cancelled') {
           // 支付失败或取消
           if (pollIntervalRef.current) {
@@ -263,6 +281,22 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
     }, 30000);
   };
   
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleClose, isOpen]);
+  
   if (!isOpen) return null;
   
   const currentAmount = getCurrentAmount();
@@ -278,7 +312,14 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
   ] : [];
   
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/95 backdrop-blur-2xl animate-in fade-in zoom-in duration-300">
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/95 backdrop-blur-2xl animate-in fade-in zoom-in duration-300"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
+    >
       <div className="bg-[#151929] border border-white/10 w-full max-w-lg rounded-[3rem] overflow-hidden flex flex-col shadow-2xl relative">
         <div className="p-10 border-b border-white/5 flex items-center justify-between bg-gradient-to-br from-white/[0.02] to-transparent">
           <div className="flex items-center space-x-4">
@@ -293,9 +334,9 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
             </div>
           </div>
           <button 
-            onClick={onClose} 
-            className="p-3 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-all"
-            disabled={isPaying}
+            onClick={handleClose} 
+            className="p-3 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-all relative z-10"
+            type="button"
           >
             <X className="w-7 h-7" />
           </button>
@@ -327,7 +368,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
                 <div className="flex flex-col items-center space-y-4 py-8">
                   <div className="text-lg font-black text-white mb-4">请扫码支付</div>
                   <div className="bg-white p-4 rounded-2xl">
-                    <img src={paymentQrCode} alt="支付二维码" className="w-48 h-48" />
+                    <QRCode value={paymentQrCode} size={192} />
                   </div>
                   <div className="text-sm text-gray-400">订单号：{currentOrder?.orderNo}</div>
                   <div className="text-sm text-gray-400">支付金额：¥ {currentAmount}</div>
@@ -532,6 +573,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
               <button 
                 onClick={() => setShowBankInfo(false)} 
                 className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-all"
+                type="button"
               >
                 <X className="w-6 h-6" />
               </button>

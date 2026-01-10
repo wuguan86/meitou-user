@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Menu, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Menu } from 'lucide-react';
 import { getCurrentUser, logout } from './api/auth';
 import Sidebar from './components/Sidebar';
 import Home from './components/Home';
@@ -30,6 +30,8 @@ const App: React.FC = () => {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // 移动端菜单状态
   const [refreshProfileKey, setRefreshProfileKey] = useState(0); // 个人中心刷新key
+  const mainRef = useRef<HTMLElement | null>(null);
+  const getScrollContainer = useCallback(() => mainRef.current, []);
 
   const [user, setUser] = useState<User>({
     id: '8829103',
@@ -128,6 +130,7 @@ const App: React.FC = () => {
           }}
           onEditProfile={() => setIsProfileOpen(true)}
           refreshKey={refreshProfileKey}
+          getScrollContainer={getScrollContainer}
         />
       );
       default: return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} />;
@@ -154,7 +157,7 @@ const App: React.FC = () => {
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
       />
-      <main className="flex-1 overflow-y-auto bg-[#0b0d17] lg:ml-0">
+      <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#0b0d17] lg:ml-0">
         <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8">
           {renderContent()}
         </div>

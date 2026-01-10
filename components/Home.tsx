@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { message } from 'antd';
 import { Type, Layers, Video, PlaySquare, Mic2, Sparkles, ArrowRight, Zap, Heart, Eye } from 'lucide-react';
 import { PageType, Inspiration, AssetNode } from '../types';
@@ -34,6 +34,32 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
     title: ''
   });
   
+  const [columnCount, setColumnCount] = useState(1);
+
+  useEffect(() => {
+    const updateColumns = () => {
+      if (window.innerWidth >= 1024) {
+        setColumnCount(4);
+      } else if (window.innerWidth >= 640) {
+        setColumnCount(2);
+      } else {
+        setColumnCount(1);
+      }
+    };
+
+    updateColumns();
+    window.addEventListener('resize', updateColumns);
+    return () => window.removeEventListener('resize', updateColumns);
+  }, []);
+
+  const masonryColumns = useMemo(() => {
+    const cols: Inspiration[][] = Array.from({ length: columnCount }, () => []);
+    inspirations.forEach((item, index) => {
+      cols[index % columnCount].push(item);
+    });
+    return cols;
+  }, [inspirations, columnCount]);
+
   // 从后台获取广告数据
   useEffect(() => {
     const loadAds = async () => {
@@ -240,13 +266,37 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
   }, [userId]);
 
   // 加载更多
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
       const nextPage = page + 1;
       setPage(nextPage);
       loadInspirations(nextPage, true);
     }
-  };
+  }, [loadingMore, hasMore, page, loadInspirations]);
+
+  // 滚动加载监听
+  const observerTarget = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          handleLoadMore();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, loadingMore, handleLoadMore]);
 
   // 处理广告点击
   const handleAdClick = (slide: typeof slides[0]) => {
@@ -374,67 +424,72 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
           </div>
         ) : (
           <div className="flex flex-col space-y-8">
-            <div className="columns-1 sm:columns-2 lg:columns-4 gap-[3px]">
-              {inspirations.map((item) => (
-              <div 
-                key={item.id} 
-                onClick={() => onSelectWork(item)}
-                className="break-inside-avoid relative group rounded-3xl overflow-hidden bg-[#0d1121] border border-white/5 shadow-xl transition-all hover:border-[#2cc2f5]/30 cursor-pointer mb-[3px]"
-              >
-                {item.type === 'video' ? (
-                  <div className="relative w-full">
-                    {item.img && item.img !== item.contentUrl ? (
-                      <img 
-                        src={item.img} 
-                        className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
-                        alt={item.title} 
-                      />
-                    ) : (
-                      <video 
-                        src={item.contentUrl} 
-                        className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
-                        muted
-                        loop
-                        playsInline
-                        preload="metadata"
-                      />
-                    )}
-                    <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 flex items-center justify-center pointer-events-none">
-                      <PlaySquare className="w-4 h-4 text-white/90" />
-                    </div>
-                  </div>
-                ) : (
-                  <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
-                  <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <img src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
-                      <span className="text-[11px] font-black text-white">{item.user}</span>
-                    </div>
-                    <button 
-                      onClick={(e) => toggleLike(e, item.id)}
-                      className="flex items-center space-x-1.5 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/5 hover:bg-white/10 transition-colors"
+            <div className="flex gap-[3px] items-start">
+              {masonryColumns.map((column, colIndex) => (
+                <div key={colIndex} className="flex-1 flex flex-col gap-[3px]">
+                  {column.map((item) => (
+                    <div 
+                      key={item.id} 
+                      onClick={() => onSelectWork(item)}
+                      className="relative group rounded-3xl overflow-hidden bg-[#0d1121] border border-white/5 shadow-xl transition-all hover:border-[#2cc2f5]/30 cursor-pointer"
                     >
-                      <Heart className={`w-3 h-3 ${likedIds.has(item.id) || item.isLiked ? 'text-[#ff2e8c] fill-[#ff2e8c]' : 'text-gray-400'}`} />
-                      <span className="text-[10px] text-white font-black">{item.likes}</span>
-                    </button>
-                  </div>
+                      {item.type === 'video' ? (
+                        <div className="relative w-full">
+                          {item.img && item.img !== item.contentUrl ? (
+                            <img 
+                              src={item.img} 
+                              className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
+                              alt={item.title} 
+                            />
+                          ) : (
+                            <video 
+                              src={item.contentUrl} 
+                              className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
+                              muted
+                              loop
+                              playsInline
+                              preload="metadata"
+                            />
+                          )}
+                          <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 flex items-center justify-center pointer-events-none">
+                            <PlaySquare className="w-4 h-4 text-white/90" />
+                          </div>
+                        </div>
+                      ) : (
+                        <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
+                        <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <img src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
+                            <span className="text-[11px] font-black text-white">{item.user}</span>
+                          </div>
+                          <button 
+                            onClick={(e) => toggleLike(e, item.id)}
+                            className="flex items-center space-x-1.5 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/5 hover:bg-white/10 transition-colors"
+                          >
+                            <Heart className={`w-3 h-3 ${likedIds.has(item.id) || item.isLiked ? 'text-[#ff2e8c] fill-[#ff2e8c]' : 'text-gray-400'}`} />
+                            <span className="text-[10px] text-white font-black">{item.likes}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
               ))}
             </div>
             
             {hasMore && (
-              <div className="flex justify-center pt-4">
-                <button
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                  className="px-6 py-2 rounded-full bg-white/5 border border-white/10 text-gray-400 text-sm hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loadingMore ? '加载中...' : '加载更多'}
-                </button>
+              <div ref={observerTarget} className="flex justify-center pt-8 pb-4">
+                {loadingMore ? (
+                  <div className="flex items-center space-x-2 text-gray-500 text-sm">
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                    <span>加载中...</span>
+                  </div>
+                ) : (
+                  <div className="h-8 w-full"></div> 
+                )}
               </div>
             )}
           </div>
