@@ -4,10 +4,12 @@ import { User as UserIcon, ShieldCheck, Phone, Mail, Lock, Key, ChevronRight, X,
 import { sendCode, loginByCode, loginByPassword, setPassword as apiSetPassword } from '../api/auth';
 import { getCurrentSite } from '../api/site';
 import { ApiError } from '../api';
-import type { User } from '../types';
+import type { User, Site } from '../types';
+import { SecureImage } from './SecureImage';
 
 interface LoginProps {
   onLoginSuccess: (userData: Partial<User>) => void;
+  siteConfig?: Site | null;
 }
 
 const DEFAULT_POLICY_TEXTS = {
@@ -46,7 +48,7 @@ const Modal = ({ isOpen, title, content, onClose }: { isOpen: boolean; title: st
   );
 };
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, siteConfig }) => {
   const [phone, setPhone] = useState(''); // 手机号
   const [code, setCode] = useState(''); // 验证码
   const [invitationCode, setInvitationCode] = useState(''); // 邀请码
@@ -61,22 +63,14 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   
   // 加载站点配置
   useEffect(() => {
-    const fetchSiteConfig = async () => {
-      try {
-        const site = await getCurrentSite();
-        if (site) {
-          setPolicyTexts(prev => ({
-            ...prev,
-            service: site.userAgreement || prev.service,
-            privacy: site.privacyPolicy || prev.privacy
-          }));
-        }
-      } catch (error) {
-        console.error('获取站点配置失败:', error);
-      }
-    };
-    fetchSiteConfig();
-  }, []);
+    if (siteConfig) {
+      setPolicyTexts(prev => ({
+        ...prev,
+        service: siteConfig.userAgreement || prev.service,
+        privacy: siteConfig.privacyPolicy || prev.privacy
+      }));
+    }
+  }, [siteConfig]);
 
   
   // 设置密码相关状态
@@ -321,11 +315,17 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       <div className="w-full max-w-[500px] relative z-10">
         <div className="bg-[#0d1121]/90 backdrop-blur-3xl border border-white/5 rounded-[3rem] p-12 shadow-[0_20px_80px_rgba(0,0,0,0.5)]">
           <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-20 h-20 brand-gradient rounded-3xl shadow-2xl glow-pink mb-6 relative group">
-               <span className="text-4xl font-black text-white italic">Meji</span>
-            </div>
-            <h1 className="text-4xl font-black tracking-tighter mb-2">美迹AI</h1>
-            <p className="brand-text-gradient font-bold tracking-widest text-[13px]">赋能美的无限可能</p>
+            {siteConfig?.logo ? (
+                <div className="flex justify-center mb-6">
+                    <SecureImage src={siteConfig.logo} alt="Logo" className="h-20 w-auto object-contain" />
+                </div>
+            ) : (
+                <div className="inline-flex items-center justify-center w-20 h-20 brand-gradient rounded-3xl shadow-2xl glow-pink mb-6 relative group">
+                   <span className="text-4xl font-black text-white italic">Meji</span>
+                </div>
+            )}
+            <h1 className="text-4xl font-black tracking-tighter mb-2">{siteConfig?.websiteName || '美迹AI'}</h1>
+            <p className="brand-text-gradient font-bold tracking-widest text-[13px]">{siteConfig?.loginSubtext || '赋能美的无限可能'}</p>
           </div>
 
           {isSettingPassword ? (
@@ -526,6 +526,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         content={activeModal ? policyTexts[activeModal] : ''} 
         onClose={() => setActiveModal(null)} 
       />
+
+      {/* Copyright Footer */}
+      <div className="absolute bottom-6 left-0 w-full text-center z-10">
+        <p className="text-[#3b4b6c] text-[10px] font-bold tracking-[0.1em] uppercase">
+          {siteConfig?.footerCopyright || 'COPYRIGHT © 2025 MEITOU TECH. RESEARCH INSTITUTE.'}
+        </p>
+      </div>
     </div>
   );
 };

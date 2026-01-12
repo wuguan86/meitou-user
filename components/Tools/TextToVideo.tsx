@@ -5,11 +5,15 @@ import { Video, Sparkles, ChevronDown, Zap, ChevronUp, Wand2, Gem } from 'lucide
 import { AssetNode, VideoGenerationConfig } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
 import AssetPickerModal from '../Modals/AssetPickerModal';
+import { SecureVideo } from '../SecureVideo';
 import * as generationAPI from '../../api/generation';
+import { promptRechargeForInsufficientBalance } from '../../api/index';
 
 interface TextToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
   onDeductPoints?: (points: number) => void;
+  availablePoints?: number;
+  onOpenRecharge?: () => void;
 }
 
 // 模型选项接口
@@ -22,7 +26,7 @@ interface ModelOption {
   defaultCost?: number;
 }
 
-const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints }) => {
+const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints, availablePoints, onOpenRecharge }) => {
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
   const [videos, setVideos] = useState<AssetNode[]>([]);
@@ -213,9 +217,14 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
       return;
     }
     
+    const cost = calculateCost();
+    if (cost > 0 && availablePoints !== undefined && availablePoints < cost) {
+      promptRechargeForInsufficientBalance();
+      return;
+    }
+
     setGenerating(true);
     setProgress(0); // 重置进度
-    const cost = calculateCost();
     // 立即扣减算力（乐观更新）
     if (onDeductPoints) {
       onDeductPoints(cost);
@@ -346,7 +355,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
     <div className="space-y-10">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-4xl font-black tracking-tighter mb-2">文生视频 <span className="brand-text-gradient">Engine v2.2</span></h2>
+          <h2 className="text-4xl font-black tracking-tighter mb-2">文生视频 <span className="brand-text-gradient pr-2">Engine</span></h2>
           <p className="text-gray-500 max-w-lg">只需一段文字，美迹AI 即可为您生成流畅、高清的 5-25 秒短视频。</p>
         </div>
       </div>
@@ -486,7 +495,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
         <div className="lg:col-span-8 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[3rem] text-gray-700 bg-white/[0.01] min-h-[500px]">
           {!generating && videos.length > 0 ? (
             <div className="w-full h-full flex items-center justify-center">
-              <video src={videos[0].url} controls className="max-w-full max-h-full" />
+              <SecureVideo src={videos[0].url} controls playsInline preload="metadata" className="max-w-full max-h-full" />
             </div>
           ) : (
             <>

@@ -1,8 +1,17 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Download, RefreshCw, Send, Sparkles } from 'lucide-react';
 import { message } from 'antd';
 import { AssetNode, PageType } from '../../types';
+import { SecureImage } from '../SecureImage';
+import { SecureVideo } from '../SecureVideo';
+import { 
+  getTextToImageModels, 
+  getImageToImageModels, 
+  getTextToVideoModels, 
+  getImageToVideoModels,
+  PlatformModelResponse 
+} from '../../api/generation';
 
 interface AssetDetailModalProps {
   asset: AssetNode;
@@ -23,6 +32,39 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
       return null;
     }
   }, [asset.generationParams]);
+
+  const [modelName, setModelName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!asset.generationType || !params?.model) return;
+
+    const fetchModels = async () => {
+      try {
+        let platforms: PlatformModelResponse[] = [];
+        if (asset.generationType === 'txt2img') {
+          platforms = await getTextToImageModels();
+        } else if (asset.generationType === 'img2img') {
+          platforms = await getImageToImageModels();
+        } else if (asset.generationType === 'txt2video') {
+          platforms = await getTextToVideoModels();
+        } else if (asset.generationType === 'img2video') {
+          platforms = await getImageToVideoModels();
+        }
+
+        for (const platform of platforms) {
+          const found = platform.models.find(m => m.id === params.model);
+          if (found) {
+            setModelName(found.name);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch models:', e);
+      }
+    };
+
+    fetchModels();
+  }, [asset.generationType, params?.model]);
 
   const handleDownload = async () => {
     try {
@@ -115,8 +157,19 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
         
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="p-8 flex items-center justify-center bg-black min-h-[300px]">
-            {asset.type === 'image' && <img src={asset.url} alt={asset.name} className="max-w-full max-h-[60vh] object-contain rounded-lg" />}
-            {asset.type === 'video' && <video src={asset.url} controls className="max-w-full max-h-[60vh] rounded-lg" />}
+            {asset.type === 'image' && (
+              <SecureImage src={asset.url} alt={asset.name} className="max-w-full max-h-[60vh] object-contain rounded-lg" />
+            )}
+            {asset.type === 'video' && (
+              <SecureVideo
+                src={asset.url}
+                poster={asset.thumbnail}
+                controls
+                playsInline
+                preload="metadata"
+                className="max-w-full max-h-[60vh] rounded-lg"
+              />
+            )}
           </div>
 
           {/* Generation Params Section */}
@@ -130,7 +183,7 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
                 {params.model && (
                   <div className="bg-black/20 p-3 rounded-lg border border-white/5">
                     <span className="text-gray-500 block text-xs mb-1">模型 Model</span>
-                    <span className="text-white font-medium">{params.model}</span>
+                    <span className="text-white font-medium">{modelName || params.model}</span>
                   </div>
                 )}
                 {params.resolution && (

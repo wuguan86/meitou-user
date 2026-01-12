@@ -175,6 +175,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user, onUp
                 src={avatarPreviewUrl || user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 
                 className="w-24 h-24 rounded-[2rem] border-4 border-cyan-500/20" 
                 alt="Avatar" 
+                referrerPolicy="no-referrer"
               />
                <label className="absolute inset-0 bg-black/50 rounded-[1.75rem] flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                 <Camera className="w-8 h-8" />

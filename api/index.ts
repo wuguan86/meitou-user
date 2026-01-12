@@ -4,7 +4,7 @@
  */
 
 import { getApiBaseUrl } from './config';
-import { message } from 'antd';
+import { Modal, message } from 'antd';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -16,6 +16,14 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 }
+
+export const promptRechargeForInsufficientBalance = () => {
+  Modal.warning({
+    title: '算力不足',
+    content: '算力不足，请先充值后再试。',
+    okText: '知道了',
+  });
+};
 
 // 请求拦截器：添加 Token
 const getHeaders = (isFormData?: boolean): HeadersInit => {
@@ -124,7 +132,9 @@ export const request = async <T>(
       // 1004: 验证码错误
       // 1005: 邀请码无效
       const silentCodes = [1001, 1002, 1004, 1005];
-      if (!silentCodes.includes(data.code)) {
+      if (data.code === 4009) {
+        promptRechargeForInsufficientBalance();
+      } else if (!silentCodes.includes(data.code) && url !== '/app/character/save') {
         message.error(data.message || '请求失败');
       }
       throw new ApiError(data.message || '请求失败', data.code);

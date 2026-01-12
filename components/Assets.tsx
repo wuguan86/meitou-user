@@ -4,6 +4,7 @@ import { FolderPlus, Upload, Folder, Music, ChevronRight, Home, Trash2, Edit3, C
 import { message, Modal } from 'antd';
 import { AssetNode } from '../types';
 import { getAssets, getFolders, createFolder, updateFolder, deleteFolder, uploadAsset, deleteAsset, deleteAssets, updateAsset, UserAsset, AssetFolder } from '../api/asset';
+import { SecureImage } from './SecureImage';
 
 interface AssetsProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -791,7 +792,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
                 {isFolder ? (
                   node.thumbnail ? (
                     <div className="relative w-full h-full">
-                        <img 
+                        <SecureImage 
                           src={node.thumbnail} 
                           className="w-full h-full object-cover opacity-50 blur-[1px] group-hover:blur-0 group-hover:opacity-80 transition-all duration-300" 
                           alt={node.name} 
@@ -804,13 +805,26 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
                     <Folder className="w-16 h-16 text-gray-800 group-hover:text-cyan-500/40 transition-colors" />
                   )
                 ) : node.type === 'image' ? (
-                  <img 
+                  <SecureImage 
                     src={node.url} 
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                     alt={node.name} 
                   />
                 ) : node.type === 'video' ? (
-                  <Video className="w-16 h-16 text-rose-500/20 group-hover:text-rose-500/40" />
+                  node.thumbnail ? (
+                    <div className="relative w-full h-full">
+                      <SecureImage 
+                        src={node.thumbnail} 
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                        alt={node.name} 
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Video className="w-10 h-10 text-white/80 drop-shadow-lg" />
+                      </div>
+                    </div>
+                  ) : (
+                    <Video className="w-16 h-16 text-rose-500/20 group-hover:text-rose-500/40" />
+                  )
                 ) : (
                   <Music className="w-16 h-16 text-pink-500/20 group-hover:text-pink-500/40" />
                 )}

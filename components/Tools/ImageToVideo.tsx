@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { message, Progress } from 'antd';
-import { PlaySquare, Upload, ChevronDown, Sparkles, Film, Image as ImageIcon, FolderOpen, ChevronUp, X, Zap, Wand2, Gem, User, Video as VideoIcon, Plus, Trash2, Settings2, Download, Send, RefreshCw } from 'lucide-react';
+import { PlaySquare, Upload, ChevronDown, Sparkles, Film, Image as ImageIcon, FolderOpen, ChevronUp, X, Zap, Wand2, Gem, User, Video as VideoIcon, Plus, Trash2, Settings2, Download, Send, RefreshCw, ChevronLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { AssetNode, VideoGenerationConfig } from '../../types';
+import { SecureImage } from '../SecureImage';
+import { SecureVideo } from '../SecureVideo';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
 import AssetPickerModal from '../Modals/AssetPickerModal';
 import * as generationAPI from '../../api/generation';
 import { uploadImage, uploadVideo } from '../../api/upload';
+import { promptRechargeForInsufficientBalance } from '../../api/index';
 
 interface ImageToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
   onDeductPoints?: (points: number) => void;
+  availablePoints?: number;
+  onOpenRecharge?: () => void;
 }
 
 // 模型选项接口
@@ -39,7 +44,7 @@ interface Character {
   characterId?: string;
 }
 
-const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoints }) => {
+const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoints, availablePoints, onOpenRecharge }) => {
   // Character Library State
   const [characterLibrary, setCharacterLibrary] = useState<Character[]>([]);
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([]);
@@ -47,6 +52,15 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const [newCharacterName, setNewCharacterName] = useState('');
   const [generatedCharacterVideoUrl, setGeneratedCharacterVideoUrl] = useState<string | null>(null);
   const [currentPid, setCurrentPid] = useState<string | null>(null);
+  const [characterManagerView, setCharacterManagerView] = useState<'list' | 'picker' | 'naming'>('list');
+  const [characterVideoLoading, setCharacterVideoLoading] = useState(false);
+  const [characterVideoPage, setCharacterVideoPage] = useState(1);
+  const [characterVideoHasMore, setCharacterVideoHasMore] = useState(true);
+  const [characterVideoRecords, setCharacterVideoRecords] = useState<generationAPI.GenerationRecord[]>([]);
+  const [selectedCharacterVideoRecord, setSelectedCharacterVideoRecord] = useState<generationAPI.GenerationRecord | null>(null);
+  const [addCharacterFromVideoName, setAddCharacterFromVideoName] = useState('');
+  const [isSavingCharacterLoading, setIsSavingCharacterLoading] = useState(false);
+  const [isAddingCharacterLoading, setIsAddingCharacterLoading] = useState(false);
 
   // Load characters from backend
   useEffect(() => {
@@ -69,9 +83,31 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     }
   };
 
+  const normalizeSaveCharacterErrorMessage = (msg?: string) => {
+    const messageText = (msg || '').trim();
+    if (!messageText) return '保存失败';
+    
+    if (messageText.includes('This video does not meet') || messageText.includes('该视频不符合') || messageText.toLowerCase().includes('does not meet the criteria')) {
+      return '该视频不符合创建角色的要求，建议重新生成清晰（不包含真人参考、需保证单一人物、无遮挡、光线充足）的视频后重试';
+    }
+    
+    if (messageText.includes('生成记录不存在')) {
+      return '生成记录不存在或已失效，请重新生成角色视频后再保存';
+    }
+    if (messageText.includes('时间戳')) {
+      return '截取时间点不合法，请调整后再试';
+    }
+    
+    return messageText;
+  };
+
   const handleSaveCharacter = async () => {
     if (!newCharacterName.trim()) {
       message.warning('请输入角色名称');
+      return;
+    }
+    if (newCharacterName.trim().length > 30) {
+      message.warning('角色名称不能超过30个字符');
       return;
     }
     if (!generatedCharacterVideoUrl) {
@@ -80,7 +116,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     }
     
     // Check for duplicate names
-    if (characterLibrary.some(c => c.name === newCharacterName.trim())) {
+    if (characterLibrary.some(c => c.name.trim().toLowerCase() === newCharacterName.trim().toLowerCase())) {
         message.warning('角色名称已存在');
         return;
     }
@@ -92,7 +128,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     }
 
     try {
-        message.loading({ content: '保存中...', key: 'saveCharacter' });
+        setIsSavingCharacterLoading(true);
         const result = await generationAPI.saveCharacterVideo({
             pid: currentPid,
             timestamps: '0,3',
@@ -108,11 +144,13 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         };
 
         setCharacterLibrary(prev => [...prev, newChar]);
+        message.success({ content: '角色保存成功', key: 'saveCharacter' });
         setSavingCharacter(false);
         setNewCharacterName('');
-        message.success({ content: '角色保存成功', key: 'saveCharacter' });
     } catch (e: any) {
-        message.error({ content: '保存失败: ' + (e.message || '未知错误'), key: 'saveCharacter' });
+        message.error({ content: normalizeSaveCharacterErrorMessage(e?.message), key: 'saveCharacter' });
+    } finally {
+        setIsSavingCharacterLoading(false);
     }
   };
 
@@ -126,6 +164,108 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
             message.error('删除角色失败');
         }
     };
+
+  const isEligibleCharacterRecord = (record: generationAPI.GenerationRecord) => {
+    return (
+      record.fileType === 'video' &&
+      record.type === 'img2video' &&
+      record.status === 'success' &&
+      !!record.pid &&
+      !!record.contentUrl
+    );
+  };
+
+  const loadCharacterVideoRecords = async (pageToLoad: number, mode: 'reset' | 'append') => {
+    if (characterVideoLoading) return;
+    setCharacterVideoLoading(true);
+    try {
+      const res = await generationAPI.getGenerationRecords(pageToLoad, 20, 'video');
+      const eligible = res.records.filter(r => 
+        isEligibleCharacterRecord(r) && 
+        !characterLibrary.some(c => c.url === r.contentUrl)
+      );
+
+      setCharacterVideoRecords(prev => {
+        const next = mode === 'reset' ? eligible : [...prev, ...eligible];
+        const uniqueById = new Map<number, generationAPI.GenerationRecord>();
+        next.forEach(r => uniqueById.set(r.id, r));
+        return Array.from(uniqueById.values()).sort((a, b) => {
+          const aTime = new Date(a.createdAt).getTime();
+          const bTime = new Date(b.createdAt).getTime();
+          return bTime - aTime;
+        });
+      });
+
+      setCharacterVideoPage(res.current);
+      setCharacterVideoHasMore(res.current < res.pages);
+    } catch (e) {
+      message.error('加载可添加角色的视频失败');
+    } finally {
+      setCharacterVideoLoading(false);
+    }
+  };
+
+  const openCharacterVideoPicker = async () => {
+    setCharacterManagerView('picker');
+    setCharacterVideoHasMore(true);
+    setCharacterVideoPage(1);
+    await loadCharacterVideoRecords(1, 'reset');
+  };
+
+  const handleConfirmAddCharacterFromVideo = async () => {
+    if (!selectedCharacterVideoRecord?.pid) {
+      message.error('无法添加：未找到生成记录ID');
+      return;
+    }
+
+    const trimmedName = addCharacterFromVideoName.trim();
+    if (!trimmedName) {
+      message.warning('请输入角色名称');
+      return;
+    }
+    if (trimmedName.length > 30) {
+      message.warning('角色名称不能超过30个字符');
+      return;
+    }
+    if (characterLibrary.some(c => c.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
+      message.warning('角色名称已存在');
+      return;
+    }
+
+    try {
+      setIsAddingCharacterLoading(true);
+      const result = await generationAPI.saveCharacterVideo({
+        pid: selectedCharacterVideoRecord.pid,
+        timestamps: '0,3',
+        name: trimmedName
+      });
+
+      const newChar: Character = {
+        id: result.id.toString(),
+        name: trimmedName,
+        url: selectedCharacterVideoRecord.contentUrl,
+        coverUrl: selectedCharacterVideoRecord.thumbnailUrl || '',
+        characterId: result.character_id,
+      };
+
+      setCharacterLibrary(prev => [...prev, newChar]);
+      message.success({ content: '角色保存成功', key: 'saveCharacterFromVideo' });
+      setSelectedCharacterVideoRecord(null);
+      setAddCharacterFromVideoName('');
+      setCharacterManagerView('list');
+    } catch (e: any) {
+      message.error({ content: normalizeSaveCharacterErrorMessage(e?.message), key: 'saveCharacterFromVideo' });
+    } finally {
+      setIsAddingCharacterLoading(false);
+    }
+  };
+
+  const closeCharacterManager = () => {
+    setIsCharacterManagerOpen(false);
+    setCharacterManagerView('list');
+    setSelectedCharacterVideoRecord(null);
+    setAddCharacterFromVideoName('');
+  };
 
   const formatPrompt = (text: string) => {
       if (!text) return '';
@@ -669,14 +809,20 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         }
     }
     
-    setGenerating(true);
-    setProgress(0); // 重置进度
-    
     // Calculate cost based on mode
     let cost = calculateCost();
     if (mainMode === 'professional' && professionalMode === 'creation') {
         cost = currentModel?.defaultCost || 500; // Step 1 and Step 2 use model cost
     }
+
+    if (cost > 0 && availablePoints !== undefined && availablePoints < cost) {
+      promptRechargeForInsufficientBalance();
+      return;
+    }
+
+    setGenerating(true);
+    setProgress(0); // 重置进度
+
     // 立即扣减算力（乐观更新）
     if (onDeductPoints) {
       onDeductPoints(cost);
@@ -876,14 +1022,16 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     onClear, 
     label, 
     placeholder = "点击或拖拽图片",
-    onPickAsset
+    onPickAsset,
+    loading = false
   }: { 
     file?: string | null, 
     onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void, 
     onClear: () => void,
     label?: string,
     placeholder?: string,
-    onPickAsset: () => void
+    onPickAsset: () => void,
+    loading?: boolean
   }) => (
     <div className="space-y-2">
       <div className="flex items-center justify-between px-1">
@@ -893,24 +1041,29 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
             <span>从资产选择</span>
         </button>
       </div>
-      <label className="block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative group">
+      <label className={`block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative group ${loading ? 'pointer-events-none opacity-50' : ''}`}>
         {file ? (
           <>
-            <img src={file} className="w-full h-full object-cover" alt="Preview" />
+            <SecureImage src={file} className="w-full h-full object-cover" alt="Preview" />
             <button 
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClear(); }}
               className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-10"
+              disabled={loading}
             >
               <X className="w-4 h-4" />
             </button>
           </>
         ) : (
           <div className="h-full flex flex-col items-center justify-center space-y-2">
-            <Upload className="w-5 h-5 text-gray-500" />
-            <p className="text-xs font-bold text-gray-400">{placeholder}</p>
+            {loading ? (
+                <Loader2 className="w-5 h-5 text-gray-500 animate-spin" />
+            ) : (
+                <Upload className="w-5 h-5 text-gray-500" />
+            )}
+            <p className="text-xs font-bold text-gray-400">{loading ? '上传中...' : placeholder}</p>
           </div>
         )}
-        <input type="file" className="hidden" onChange={onUpload} accept="image/*" />
+        <input type="file" className="hidden" onChange={onUpload} accept="image/*" disabled={loading} />
       </label>
     </div>
   );
@@ -924,7 +1077,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-4xl font-black tracking-tighter mb-2">图生视频 <span className="brand-text-gradient">Engine v3.3.9</span></h2>
+          <h2 className="text-4xl font-black tracking-tighter mb-2">图生视频 <span className="brand-text-gradient pr-2">Engine</span></h2>
           <p className="text-gray-500">上传一张图，让它动起来。</p>
         </div>
       </div>
@@ -1015,9 +1168,9 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         className="w-full h-24 bg-[#151929] border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-[#2cc2f5] transition-all resize-none"
                                     />
                                     <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center">
-                                        <label className="cursor-pointer p-1.5 hover:bg-white/10 rounded-lg transition-colors">
-                                            <ImageIcon className="w-4 h-4 text-gray-400" />
-                                            <input type="file" className="hidden" onChange={handleGenericUpload(setFile)} accept="image/*" />
+                                        <label className={`cursor-pointer p-1.5 hover:bg-white/10 rounded-lg transition-colors ${uploading ? 'pointer-events-none opacity-50' : ''}`}>
+                                            {uploading ? <Loader2 className="w-4 h-4 text-gray-400 animate-spin" /> : <ImageIcon className="w-4 h-4 text-gray-400" />}
+                                            <input type="file" className="hidden" onChange={handleGenericUpload(setFile)} accept="image/*" disabled={uploading} />
                                         </label>
                                         <button 
                                             onClick={() => handleOptimizePrompt('step1')}
@@ -1031,7 +1184,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                 </div>
                                 {file && (
                                     <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-white/10 group">
-                                        <img src={file} className="w-full h-full object-cover" />
+                                        <SecureImage src={file} className="w-full h-full object-cover" />
                                         <button 
                                             onClick={() => setFile(null)}
                                             className="absolute top-1 right-1 p-0.5 bg-black/50 rounded-full text-white hover:bg-red-500 opacity-0 group-hover:opacity-100 transition-all"
@@ -1107,7 +1260,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         <div className="bg-[#151929] rounded-xl border border-white/10 p-3">
                                             <p className="text-xs font-bold text-white mb-2">生成结果:</p>
                                             <div className="aspect-video rounded-lg overflow-hidden bg-black relative group">
-                                                <video 
+                                                <SecureVideo 
                                                     src={generatedCharacterVideoUrl} 
                                                     controls 
                                                     className="w-full h-full"
@@ -1142,13 +1295,16 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <button 
                                                         onClick={handleSaveCharacter}
-                                                        className="py-2 bg-[#2cc2f5] text-black rounded-lg text-xs font-bold hover:brightness-110"
+                                                        disabled={isSavingCharacterLoading}
+                                                        className={`py-2 bg-[#2cc2f5] text-black rounded-lg text-xs font-bold hover:brightness-110 flex items-center justify-center space-x-1 ${isSavingCharacterLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                     >
-                                                        确认保存
+                                                        {isSavingCharacterLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                                                        <span>{isSavingCharacterLoading ? '保存中' : '确认保存'}</span>
                                                     </button>
                                                     <button 
                                                         onClick={() => setSavingCharacter(false)}
-                                                        className="py-2 bg-white/5 text-gray-400 rounded-lg text-xs font-bold hover:bg-white/10"
+                                                        disabled={isSavingCharacterLoading}
+                                                        className={`py-2 bg-white/5 text-gray-400 rounded-lg text-xs font-bold hover:bg-white/10 ${isSavingCharacterLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                     >
                                                         取消
                                                     </button>
@@ -1157,7 +1313,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         )}
                                     </div>
                                 )}
-                                <p className="text-[10px] text-gray-600 text-center">提示：不可使用真人照片上传进行参考。</p>
+                                <p className="text-[10px] text-gray-600 text-center">1、不可使用写实风格照片上传进行参考。2、角色生成期间，不要离开本页面，否则角色无法正常保存。</p>
                             </div>
                     </div>
 
@@ -1169,7 +1325,10 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                 <span className="font-bold text-white">生成视频</span>
                             </div>
                             <button 
-                                onClick={() => setIsCharacterManagerOpen(true)}
+                                onClick={() => {
+                                  setIsCharacterManagerOpen(true);
+                                  setCharacterManagerView('list');
+                                }}
                                 className="text-xs text-[#2cc2f5] flex items-center space-x-1 hover:text-[#2cc2f5]/80 transition-colors"
                             >
                                 <User className="w-3 h-3" />
@@ -1211,7 +1370,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                                 className="flex flex-col items-center space-y-1 group"
                                             >
                                                 <div className={`w-12 h-12 rounded-lg overflow-hidden border transition-all relative ${selectedCharacterIds.includes(char.id) ? 'border-[#2cc2f5] ring-2 ring-[#2cc2f5]/50' : 'border-white/10 group-hover:border-[#2cc2f5]'}`}>
-                                                    <img src={char.coverUrl || char.url} className="w-full h-full object-cover" />
+                                                    {char.coverUrl ? (
+                                                        <SecureImage src={char.coverUrl} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <SecureVideo src={char.url} className="w-full h-full object-cover" muted playsInline />
+                                                    )}
                                                 </div>
                                                 <span className={`text-[10px] truncate w-full text-center ${selectedCharacterIds.includes(char.id) ? 'text-white font-bold' : 'text-gray-400 group-hover:text-white'}`}>{char.name}</span>
                                             </button>
@@ -1302,7 +1465,16 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                     <div className="flex items-center justify-between px-1">
                         <span className="text-sm font-bold text-white">上传参考图片</span>
                         <button 
-                            onClick={() => { setIsAssetPickerOpen(true); setActivePicker('first'); }} 
+                            onClick={() => { 
+                                setIsAssetPickerOpen(true); 
+                                if (!file) {
+                                    setActivePicker('first');
+                                } else if (!lastFrameFile) {
+                                    setActivePicker('last');
+                                } else {
+                                    setActivePicker('first');
+                                }
+                            }} 
                             className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors"
                         >
                             <FolderOpen className="w-3.5 h-3.5" />
@@ -1314,7 +1486,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                             <label className="block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative">
                                 {file ? (
                                     <>
-                                        <img src={file} className="w-full h-full object-cover" alt="First Frame" />
+                                        <SecureImage src={file} className="w-full h-full object-cover" alt="First Frame" />
                                         <button 
                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFile(null); }}
                                             className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-10"
@@ -1324,11 +1496,15 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                     </>
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center space-y-2">
-                                        <Upload className="w-5 h-5 text-gray-500" />
-                                        <p className="text-xs font-bold text-gray-400">首帧</p>
+                                        {uploading ? (
+                                            <Loader2 className="w-5 h-5 text-[#ff2e8c] animate-spin" />
+                                        ) : (
+                                            <Upload className="w-5 h-5 text-gray-500" />
+                                        )}
+                                        <p className="text-xs font-bold text-gray-400">{uploading ? '上传中...' : '首帧'}</p>
                                     </div>
                                 )}
-                                <input type="file" className="hidden" onChange={handleGenericUpload(setFile)} accept="image/*" />
+                                <input type="file" className="hidden" onChange={handleGenericUpload(setFile)} accept="image/*" disabled={uploading} />
                             </label>
                          </div>
                          
@@ -1336,7 +1512,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                             <label className="block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative">
                                 {lastFrameFile ? (
                                     <>
-                                        <img src={lastFrameFile} className="w-full h-full object-cover" alt="Last Frame" />
+                                        <SecureImage src={lastFrameFile} className="w-full h-full object-cover" alt="Last Frame" />
                                         <button 
                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLastFrameFile(null); }}
                                             className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-10"
@@ -1346,11 +1522,15 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                     </>
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center space-y-2">
-                                        <Upload className="w-5 h-5 text-gray-500" />
-                                        <p className="text-xs font-bold text-gray-400">尾帧</p>
+                                        {uploading ? (
+                                            <Loader2 className="w-5 h-5 text-[#ff2e8c] animate-spin" />
+                                        ) : (
+                                            <Upload className="w-5 h-5 text-gray-500" />
+                                        )}
+                                        <p className="text-xs font-bold text-gray-400">{uploading ? '上传中...' : '尾帧'}</p>
                                     </div>
                                 )}
-                                <input type="file" className="hidden" onChange={handleGenericUpload(setLastFrameFile)} accept="image/*" />
+                                <input type="file" className="hidden" onChange={handleGenericUpload(setLastFrameFile)} accept="image/*" disabled={uploading} />
                             </label>
                          </div>
                     </div>
@@ -1369,7 +1549,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                     <div className="grid grid-cols-3 gap-3">
                         {referenceFiles.map((url, index) => (
                             <div key={index} className="relative aspect-[3/4] rounded-2xl overflow-hidden border-2 border-[#22283d] bg-[#151929] group">
-                                <img src={url} className="w-full h-full object-cover" />
+                                <SecureImage src={url} className="w-full h-full object-cover" />
                                 <button 
                                     onClick={() => {
                                         const newFiles = [...referenceFiles];
@@ -1385,12 +1565,12 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                         ))}
                         
                         {referenceFiles.length < maxReferenceImages && (
-                             <label className="aspect-[3/4] border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all flex flex-col items-center justify-center space-y-2 group">
+                             <label className={`aspect-[3/4] border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all flex flex-col items-center justify-center space-y-2 group ${uploading ? 'pointer-events-none opacity-50' : ''}`}>
                                 <div className="w-8 h-8 rounded-full bg-[#22283d] flex items-center justify-center group-hover:bg-[#ff2e8c] transition-colors">
-                                    <Upload className="w-4 h-4 text-gray-400 group-hover:text-white" />
+                                    {uploading ? <Loader2 className="w-4 h-4 text-[#ff2e8c] animate-spin" /> : <Upload className="w-4 h-4 text-gray-400 group-hover:text-white" />}
                                 </div>
-                                <span className="text-xs font-bold text-gray-400 group-hover:text-white">图{referenceFiles.length + 1}</span>
-                                <input type="file" className="hidden" onChange={handleReferenceUpload} accept="image/*" />
+                                <span className="text-xs font-bold text-gray-400 group-hover:text-white">{uploading ? '上传中...' : `图${referenceFiles.length + 1}`}</span>
+                                <input type="file" className="hidden" onChange={handleReferenceUpload} accept="image/*" disabled={uploading} />
                             </label>
                         )}
                         
@@ -1430,11 +1610,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                       For now, I'll just not render it by adding profStep === 0 check which is never true.
                   */}
                   <div className="grid grid-cols-2 gap-4 h-48">
-                      <label className="relative bg-[#151929] border border-white/5 rounded-2xl flex flex-col items-center justify-center space-y-4 hover:border-[#ff2e8c]/50 transition-all group cursor-pointer overflow-hidden">
+                      <label className={`relative bg-[#151929] border border-white/5 rounded-2xl flex flex-col items-center justify-center space-y-4 hover:border-[#ff2e8c]/50 transition-all group cursor-pointer overflow-hidden ${uploading ? 'pointer-events-none opacity-50' : ''}`}>
                           {file ? (
                                <>
                                 {fileType === 'video' ? (
-                                    <video 
+                                    <SecureVideo 
                                         src={file} 
                                         className="absolute inset-0 w-full h-full object-cover" 
                                         muted 
@@ -1444,11 +1624,12 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         }}
                                     />
                                 ) : (
-                                    <img src={file} className="absolute inset-0 w-full h-full object-cover" alt="Preview" />
+                                    <SecureImage src={file} className="absolute inset-0 w-full h-full object-cover" alt="Preview" />
                                 )}
                                 <button 
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFile(null); }}
                                     className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-20"
+                                    disabled={uploading}
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
@@ -1456,12 +1637,16 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                           ) : (
                               <>
                                   <div className="w-12 h-12 rounded-full bg-[#22283d] flex items-center justify-center group-hover:bg-[#ff2e8c] transition-colors">
-                                      <User className="w-6 h-6 text-white" />
+                                      {uploading ? (
+                                          <Loader2 className="w-6 h-6 text-[#ff2e8c] animate-spin" />
+                                      ) : (
+                                          <User className="w-6 h-6 text-white" />
+                                      )}
                                   </div>
-                                  <span className="text-xs font-bold text-gray-400 group-hover:text-white">创建角色1</span>
+                                  <span className="text-xs font-bold text-gray-400 group-hover:text-white">{uploading ? '上传中...' : '创建角色1'}</span>
                               </>
                           )}
-                          <input type="file" className="hidden" onChange={handleVideoUpload(setFile)} accept="video/*" />
+                          <input type="file" className="hidden" onChange={handleVideoUpload(setFile)} accept="video/*" disabled={uploading} />
                       </label>
 
                       <button className="bg-[#151929] border border-white/5 rounded-2xl flex flex-col items-center justify-center space-y-4 hover:border-[#ff2e8c]/50 transition-all group">
@@ -1488,7 +1673,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                           >
                               {selectedContinuationRecord ? (
                                 <>
-                                  <video
+                                  <SecureVideo
                                     src={selectedContinuationRecord.contentUrl}
                                     className="absolute inset-0 w-full h-full object-cover"
                                     muted
@@ -1772,7 +1957,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
               className="w-full h-full flex items-center justify-center cursor-pointer group relative"
               onClick={() => setPreviewVideo(videos[0])}
             >
-              <video 
+              <SecureVideo 
                 src={videos[0].url} 
                 controls 
                 className="max-w-full max-h-full rounded-xl shadow-2xl transition-transform group-hover:scale-[1.01]" 
@@ -1824,64 +2009,262 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
            <div className="flex items-center justify-between mb-6">
               <div className="flex items-center space-x-2">
                   <User className="w-5 h-5 text-[#2cc2f5]" />
-                  <h3 className="text-lg font-bold text-white">角色库管理</h3>
+                  <h3 className="text-lg font-bold text-white">
+                    {characterManagerView === 'list' && '角色库管理'}
+                    {characterManagerView === 'picker' && '选择角色视频'}
+                    {characterManagerView === 'naming' && '为角色命名'}
+                  </h3>
               </div>
-              <button 
-                  onClick={() => setIsCharacterManagerOpen(false)}
+              <div className="flex items-center space-x-2">
+                {characterManagerView !== 'list' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (characterManagerView === 'naming') {
+                        setCharacterManagerView('picker');
+                        setSelectedCharacterVideoRecord(null);
+                        setAddCharacterFromVideoName('');
+                      } else {
+                        setCharacterManagerView('list');
+                      }
+                    }}
+                    className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
+                    title="返回"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                )}
+                {characterManagerView === 'picker' && (
+                  <button
+                    type="button"
+                    onClick={() => loadCharacterVideoRecords(1, 'reset')}
+                    disabled={characterVideoLoading}
+                    className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                    title="刷新"
+                  >
+                    <RefreshCw className={`w-5 h-5 ${characterVideoLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeCharacterManager}
                   className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
-              >
+                  title="关闭"
+                >
                   <X className="w-5 h-5" />
-              </button>
+                </button>
+              </div>
            </div>
            
            {/* Content */}
-           <div className="grid grid-cols-3 sm:grid-cols-4 gap-4 max-h-[60vh] overflow-y-auto pr-2">
+           {characterManagerView === 'list' && (
+             <div className="grid grid-cols-3 sm:grid-cols-4 gap-4 max-h-[60vh] overflow-y-auto pr-2">
+               <button
+                 type="button"
+                 onClick={openCharacterVideoPicker}
+                 className="group relative bg-[#0d1121] rounded-xl overflow-hidden border border-dashed border-white/15 hover:border-[#2cc2f5]/60 transition-all flex flex-col items-center justify-center aspect-square min-h-[100px] z-10"
+               >
+                 <div className="flex flex-col items-center justify-center space-y-2">
+                   <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-[#2cc2f5]/15 transition-colors">
+                     <Plus className="w-6 h-6 text-[#2cc2f5]" />
+                   </div>
+                   <span className="text-xs font-bold text-gray-300 group-hover:text-white transition-colors">添加角色</span>
+                 </div>
+               </button>
+
                {characterLibrary.map(char => (
-                   <div key={char.id} className="group relative bg-[#151929] rounded-xl overflow-hidden border border-white/5 hover:border-[#2cc2f5]/50 transition-all">
-                       <div className="aspect-square relative">
-                           {char.coverUrl ? (
-                               <img src={char.coverUrl} className="w-full h-full object-cover" />
-                           ) : (
-                               <video src={char.url} className="w-full h-full object-cover" muted />
-                           )}
-                           
-                           {/* Overlay Actions */}
-                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2">
-                               <button 
-                                   onClick={(e) => {
-                                       e.stopPropagation();
-                                       window.open(char.url, '_blank');
-                                   }}
-                                   className="p-2 bg-white/10 rounded-full text-white hover:bg-[#2cc2f5] hover:text-black transition-colors"
-                                   title="预览视频"
-                               >
-                                   <PlaySquare className="w-5 h-5" />
-                               </button>
-                               <button 
-                                   onClick={(e) => {
-                                       e.stopPropagation();
-                                       handleDeleteCharacter(char.id);
-                                   }}
-                                   className="p-2 bg-white/10 rounded-full text-white hover:bg-red-500 hover:text-white transition-colors"
-                                   title="删除角色"
-                               >
-                                   <Trash2 className="w-5 h-5" />
-                               </button>
-                           </div>
-                       </div>
-                       <div className="p-3">
-                           <p className="text-xs font-bold text-white truncate text-center">{char.name}</p>
-                       </div>
+                 <div key={char.id} className="group relative bg-[#151929] rounded-xl overflow-hidden border border-white/5 hover:border-[#2cc2f5]/50 transition-all">
+                   <div className="aspect-square relative">
+                     {char.coverUrl ? (
+                       <SecureImage src={char.coverUrl} className="w-full h-full object-cover" />
+                     ) : (
+                       <SecureVideo src={char.url} className="w-full h-full object-cover" muted />
+                     )}
+
+                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2">
+                       <button
+                           type="button"
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setPreviewVideo({
+                               id: char.id,
+                               name: char.name,
+                               type: 'video',
+                               url: char.url,
+                               thumbnail: char.coverUrl,
+                               createdAt: Date.now(),
+                               prompt: char.name
+                             });
+                           }}
+                           className="p-2 bg-white/10 rounded-full text-white hover:bg-[#2cc2f5] hover:text-black transition-colors"
+                           title="预览视频"
+                         >
+                           <PlaySquare className="w-5 h-5" />
+                         </button>
+                       <button
+                         type="button"
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleDeleteCharacter(char.id);
+                         }}
+                         className="p-2 bg-white/10 rounded-full text-white hover:bg-red-500 hover:text-white transition-colors"
+                         title="删除角色"
+                       >
+                         <Trash2 className="w-5 h-5" />
+                       </button>
+                     </div>
                    </div>
+                   <div className="p-3">
+                     <p className="text-xs font-bold text-white truncate text-center">{char.name}</p>
+                   </div>
+                 </div>
                ))}
-               
+
                {characterLibrary.length === 0 && (
-                   <div className="col-span-full py-12 flex flex-col items-center justify-center text-gray-500 space-y-3">
-                       <User className="w-12 h-12 opacity-20" />
-                       <p className="text-sm">暂无保存的角色</p>
-                   </div>
+                 <div className="col-span-full py-12 flex flex-col items-center justify-center text-gray-500 space-y-3">
+                   <User className="w-12 h-12 opacity-20" />
+                   <p className="text-sm">暂无保存的角色</p>
+                 </div>
                )}
-           </div>
+             </div>
+           )}
+
+           {characterManagerView === 'picker' && (
+             <>
+               <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-100/80 leading-relaxed">
+                    请选择清晰（不包含真人参考、需保证单一人物、无遮挡、光线充足）的视频
+                  </p>
+               </div>
+               <div className="max-h-[60vh] overflow-y-auto pr-2">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                   {characterVideoRecords.map(record => (
+                     <button
+                       key={record.id}
+                       type="button"
+                       className="group relative bg-[#151929] rounded-xl overflow-hidden border border-white/5 hover:border-[#2cc2f5]/50 transition-all text-left"
+                       onClick={() => {
+                         setSelectedCharacterVideoRecord(record);
+                         setAddCharacterFromVideoName('');
+                         setCharacterManagerView('naming');
+                       }}
+                     >
+                       <div className="aspect-video relative bg-black">
+                         <SecureVideo
+                           src={record.contentUrl}
+                           className="w-full h-full object-cover"
+                           muted
+                           playsInline
+                           preload="metadata"
+                           onLoadedMetadata={(e) => {
+                             e.currentTarget.currentTime = 0.1;
+                           }}
+                         />
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                           <span className="px-3 py-1.5 rounded-full bg-white/10 backdrop-blur text-xs font-bold text-white">选择</span>
+                         </div>
+                       </div>
+                       <div className="p-3 space-y-1">
+                         <p className="text-xs font-bold text-white truncate">{formatPrompt(record.prompt) || '未命名视频'}</p>
+                         <p className="text-[10px] text-gray-400 truncate">模型：{record.model}</p>
+                         <p className="text-[10px] text-gray-500">生成于 {formatRecordCreatedAt(record.createdAt)}</p>
+                       </div>
+                     </button>
+                   ))}
+
+                   {!characterVideoLoading && characterVideoRecords.length === 0 && (
+                     <div className="col-span-full py-12 flex flex-col items-center justify-center text-gray-500 space-y-3">
+                       <VideoIcon className="w-12 h-12 opacity-20" />
+                       <p className="text-sm">暂无符合条件的可添加角色视频</p>
+                       <p className="text-[10px] text-gray-600">条件：图生视频 + pid有值 + success</p>
+                     </div>
+                   )}
+                 </div>
+               </div>
+
+               <div className="mt-6 flex items-center justify-between">
+                 <div className="text-[10px] text-gray-500">共 {characterVideoRecords.length} 条</div>
+                 <div className="flex items-center space-x-3">
+                   {characterVideoHasMore && (
+                     <button
+                       type="button"
+                       onClick={() => loadCharacterVideoRecords(characterVideoPage + 1, 'append')}
+                       disabled={characterVideoLoading}
+                       className="px-4 py-2 bg-white/5 text-gray-200 hover:bg-white/10 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                     >
+                       {characterVideoLoading ? '加载中...' : '加载更多'}
+                     </button>
+                   )}
+                 </div>
+               </div>
+             </>
+           )}
+
+           {characterManagerView === 'naming' && selectedCharacterVideoRecord && (
+             <div className="flex flex-col">
+               <div className="aspect-video mb-6 bg-black rounded-xl overflow-hidden border border-white/10 relative group shadow-2xl">
+                 <SecureVideo
+                   src={selectedCharacterVideoRecord.contentUrl}
+                   className="w-full h-full object-contain"
+                   controls
+                   playsInline
+                   autoPlay
+                   loop
+                 />
+               </div>
+
+               <div className="bg-[#151929] border border-white/10 rounded-2xl p-6 space-y-6">
+                 <div className="space-y-3">
+                   <label className="text-sm font-bold text-white flex items-center">
+                     角色名称 
+                     <span className="text-red-500 ml-1" title="必填">*</span>
+                   </label>
+                   <div className="relative">
+                      <input
+                        value={addCharacterFromVideoName}
+                        onChange={(e) => setAddCharacterFromVideoName(e.target.value)}
+                        placeholder="请输入角色名称（必填）"
+                        className="w-full bg-[#0d1121] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#2cc2f5] focus:ring-1 focus:ring-[#2cc2f5] transition-all placeholder:text-gray-600"
+                        maxLength={30}
+                        autoFocus
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-500">
+                        {addCharacterFromVideoName.length}/30
+                      </span>
+                   </div>
+                   <div className="flex items-start gap-1.5 mt-2 text-yellow-500/90">
+                     <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                     <p className="text-xs">角色生成期间，不要离开本页面，否则角色无法正常保存。</p>
+                   </div>
+                 </div>
+
+                 <div className="flex items-center justify-end space-x-3 pt-2">
+                   <button
+                    type="button"
+                    onClick={() => {
+                      setCharacterManagerView('picker');
+                      setSelectedCharacterVideoRecord(null);
+                      setAddCharacterFromVideoName('');
+                    }}
+                    disabled={isAddingCharacterLoading}
+                    className={`px-6 py-2.5 bg-white/5 text-gray-300 hover:bg-white/10 rounded-xl text-xs font-bold transition-all ${isAddingCharacterLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    返回选择
+                  </button>
+                   <button
+                     type="button"
+                     onClick={handleConfirmAddCharacterFromVideo}
+                     disabled={!addCharacterFromVideoName.trim() || isAddingCharacterLoading}
+                     className="px-8 py-2.5 brand-gradient rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/20 flex items-center justify-center space-x-1"
+                   >
+                     {isAddingCharacterLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                     <span>{isAddingCharacterLoading ? '保存中' : '确认添加'}</span>
+                   </button>
+                 </div>
+               </div>
+             </div>
+           )}
         </div>
       </div>
     )}
@@ -1934,7 +2317,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                   }}
                 >
                   <div className="aspect-video relative bg-black">
-                    <video
+                    <SecureVideo
                       src={record.contentUrl}
                       className="w-full h-full object-cover"
                       muted
@@ -2018,7 +2401,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
            
            {/* Video Content */}
            <div className="flex-1 bg-black flex items-center justify-center p-4 min-h-[400px]">
-               <video 
+               <SecureVideo 
                    src={previewVideo.url} 
                    className="max-w-full max-h-[60vh] rounded-lg shadow-lg" 
                    controls 

@@ -20,17 +20,22 @@ import {
   Film,
   Download,
   Wand2,
-  Gem
+  Gem,
+  X
 } from 'lucide-react';
 import { AssetNode, ImageGenerationConfig } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
 import AssetPickerModal from '../Modals/AssetPickerModal';
+import { SecureImage } from '../SecureImage';
 import * as generationAPI from '../../api/generation';
 import * as uploadAPI from '../../api/upload';
+import { promptRechargeForInsufficientBalance } from '../../api/index';
 
 interface ImageToImageProps {
   onSelectAsset: (asset: AssetNode) => void;
   onDeductPoints?: (points: number) => void;
+  availablePoints?: number;
+  onOpenRecharge?: () => void;
 }
 
 // 模型选项接口
@@ -43,7 +48,7 @@ interface ModelOption {
   defaultCost?: number;
 }
 
-const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoints }) => {
+const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoints, availablePoints, onOpenRecharge }) => {
   const [activeTab, setActiveTab] = useState<'single' | 'multi'>('single');
   const [model, setModel] = useState('');
   const [resolution, setResolution] = useState('1K');
@@ -291,10 +296,15 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
       message.warning('请上传参考图片');
       return;
     }
-    
+
+    const cost = calculateCost();
+    if (cost > 0 && availablePoints !== undefined && availablePoints < cost) {
+      promptRechargeForInsufficientBalance();
+      return;
+    }
+
     setGenerating(true);
     setProgress(0); // 重置进度
-    const cost = calculateCost();
     // 立即扣减算力（乐观更新）
     if (onDeductPoints) {
       onDeductPoints(cost);
@@ -437,18 +447,37 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
     );
   };
   
+  const handleRemove = (index: number) => {
+    const newFiles = [...files];
+    newFiles[index] = null;
+    setFiles(newFiles);
+  };
+
   const UploadBox = ({ index, label }: { index: number, label: string }) => (
-    <label className="block aspect-square border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative group">
-      {files[index] ? (
-        <img src={files[index]!} className="w-full h-full object-contain" alt="Preview" />
-      ) : (
-        <div className="h-full flex flex-col items-center justify-center space-y-2">
-          <Upload className="w-5 h-5 text-gray-500" />
-          <p className="text-xs font-bold text-gray-400">{label}</p>
-        </div>
+    <div className="relative group block aspect-square">
+      <label className="block w-full h-full border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative">
+        {files[index] ? (
+          <img src={files[index]!} className="w-full h-full object-contain" alt="Preview" />
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center space-y-2">
+            <Upload className="w-5 h-5 text-gray-500" />
+            <p className="text-xs font-bold text-gray-400">{label}</p>
+          </div>
+        )}
+        <input type="file" className="hidden" onChange={(e) => handleUpload(e, index)} accept="image/*" />
+      </label>
+      {files[index] && (
+        <button 
+          className="absolute top-2 right-2 p-1 bg-black/50 hover:bg-black/80 rounded-full text-white opacity-0 group-hover:opacity-100 transition-all z-10"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleRemove(index);
+          }}
+        >
+          <X size={14} />
+        </button>
       )}
-      <input type="file" className="hidden" onChange={(e) => handleUpload(e, index)} accept="image/*" />
-    </label>
+    </div>
   );
 
 
@@ -456,7 +485,7 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
     <>
     <div className="space-y-10">
         <div>
-          <h2 className="text-4xl font-black tracking-tighter mb-2">图生图 <span className="brand-text-gradient">Engine v2.2</span></h2>
+          <h2 className="text-4xl font-black tracking-tighter mb-2">图生图 <span className="brand-text-gradient pr-2">Engine</span></h2>
           <p className="text-gray-500">用图片参考，生成一个您想要的高质量图片</p>
         </div>
         <div className="flex h-full gap-8">
@@ -485,7 +514,17 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
               </div>
 
               <div className="flex items-center justify-end px-1">
-                <button onClick={() => openAssetPicker(0)} className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors">
+                <button 
+                  onClick={() => {
+                    let targetIndex = 0;
+                    if (activeTab === 'multi') {
+                      const emptyIndex = files.findIndex((f, i) => f === null && i < 3);
+                      if (emptyIndex !== -1) targetIndex = emptyIndex;
+                    }
+                    openAssetPicker(targetIndex);
+                  }}
+                  className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors"
+                >
                   <FolderOpen className="w-3.5 h-3.5" />
                   <span>从资产选择</span>
                 </button>
@@ -651,7 +690,7 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
                     onClick={() => onSelectAsset(imgNode)}
                     className="group relative aspect-square rounded-[2rem] overflow-hidden bg-[#0d1121] border border-white/5 shadow-2xl transition-all hover:border-cyan-500/30 cursor-pointer"
                   >
-                    <img src={imgNode.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Generated" />
+                    <SecureImage src={imgNode.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Generated" />
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <button className="p-4 bg-white/10 hover:bg-white/20 rounded-2xl backdrop-blur-md border border-white/20 transition-all hover:scale-110">
                         <Download className="w-8 h-8 text-white" />

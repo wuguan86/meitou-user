@@ -4,11 +4,15 @@ import { message, Progress } from 'antd';
 import { Send, Wand2, Download, RefreshCcw, Image as ImageIcon, Zap, ChevronDown, Check, ChevronUp, Gem } from 'lucide-react';
 import { AssetNode, ImageGenerationConfig } from '../../types';
 import AssetPickerModal from '../Modals/AssetPickerModal';
+import { SecureImage } from '../SecureImage';
 import * as generationAPI from '../../api/generation';
+import { promptRechargeForInsufficientBalance } from '../../api/index';
 
 interface TextToImageProps {
   onSelectAsset: (asset: AssetNode) => void;
   onDeductPoints?: (points: number) => void;
+  availablePoints?: number;
+  onOpenRecharge?: () => void;
 }
 
 // 模型选项接口
@@ -21,7 +25,7 @@ interface ModelOption {
   defaultCost?: number;
 }
 
-const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints }) => {
+const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints, availablePoints, onOpenRecharge }) => {
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
   const [images, setImages] = useState<AssetNode[]>([]);
@@ -160,10 +164,15 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
   const handleGenerate = async () => {
     // 验证提示词
     if (!prompt.trim()) return;
-    
+
+    const cost = calculateCost();
+    if (cost > 0 && availablePoints !== undefined && availablePoints < cost) {
+      promptRechargeForInsufficientBalance();
+      return;
+    }
+
     setGenerating(true);
     setProgress(0); // 重置进度
-    const cost = calculateCost();
     // 立即扣减算力（乐观更新）
     if (onDeductPoints) {
       onDeductPoints(cost);
@@ -351,7 +360,7 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
     <div className="space-y-10">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-4xl font-black tracking-tighter mb-2">文生图 <span className="brand-text-gradient">Engine v2.2</span></h2>
+          <h2 className="text-4xl font-black tracking-tighter mb-2">文生图 <span className="brand-text-gradient pr-2">Engine</span></h2>
           <p className="text-gray-500">只需一段文字，美迹AI 即可为您想要的高质量图片</p>
         </div>
       </div>
@@ -504,7 +513,7 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
                   onClick={() => onSelectAsset(imgNode)}
                   className="group relative aspect-square rounded-[2rem] overflow-hidden bg-[#0d1121] border border-white/5 shadow-2xl transition-all hover:border-cyan-500/30 cursor-pointer"
                 >
-                  <img src={imgNode.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Generated" />
+                  <SecureImage src={imgNode.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Generated" />
                   <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <button className="p-4 bg-white/10 hover:bg-white/20 rounded-2xl backdrop-blur-md border border-white/20 transition-all hover:scale-110">
                       <Download className="w-8 h-8 text-white" />

@@ -4,6 +4,7 @@ import { message } from 'antd';
 import { X, Folder, Image, Music, Video, ChevronRight, Home, Search } from 'lucide-react';
 import { AssetNode } from '../../types';
 import * as assetAPI from '../../api/asset';
+import { SecureImage } from '../SecureImage';
 
 interface AssetPickerModalProps {
   isOpen: boolean;
@@ -98,6 +99,7 @@ const AssetPickerModal: React.FC<AssetPickerModalProps> = ({ isOpen, onClose, on
         name: asset.title,
         type: asset.type as 'image' | 'video' | 'audio',
         url: asset.url,
+        thumbnail: asset.thumbnail,
         createdAt: new Date(asset.createdAt).getTime()
       });
     });
@@ -201,7 +203,18 @@ const AssetPickerModal: React.FC<AssetPickerModalProps> = ({ isOpen, onClose, on
                 <div key={node.id} onClick={() => handleNodeClick(node)} className="group cursor-pointer">
                   <div className="aspect-square rounded-2xl bg-[#0d1121] flex items-center justify-center mb-3 overflow-hidden border border-transparent group-hover:border-cyan-400 transition-all">
                      {(node.type === 'image' && node.url) || (node.type === 'folder' && node.thumbnail) ? (
-                       <img src={node.type === 'image' ? node.url : node.thumbnail} alt={node.name} className="w-full h-full object-cover" />
+                       <SecureImage src={node.type === 'image' ? node.url : node.thumbnail} alt={node.name} className="w-full h-full object-cover" />
+                     ) : node.type === 'video' ? (
+                        node.thumbnail ? (
+                          <div className="relative w-full h-full">
+                            <SecureImage src={node.thumbnail} alt={node.name} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Video className="w-8 h-8 text-white/80 drop-shadow-lg" />
+                            </div>
+                          </div>
+                        ) : (
+                           getIcon(node.type)
+                        )
                      ) : (
                        getIcon(node.type)
                      )}

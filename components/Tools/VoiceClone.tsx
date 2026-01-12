@@ -3,8 +3,14 @@ import React, { useState } from 'react';
 import { Mic2, Upload, FileText, ChevronDown, Play, Repeat, Zap } from 'lucide-react';
 import * as voiceAPI from '../../api/voice';
 import { message } from 'antd';
+import { ApiError } from '../../api/index';
 
-const VoiceClone: React.FC = () => {
+interface VoiceCloneProps {
+  availablePoints?: number;
+  onOpenRecharge?: () => void;
+}
+
+const VoiceClone: React.FC<VoiceCloneProps> = () => {
   const [file, setFile] = useState<File | null>(null);
   const [fileData, setFileData] = useState<string | null>(null); // base64数据
   const [fileName, setFileName] = useState('');
@@ -51,7 +57,9 @@ const VoiceClone: React.FC = () => {
       
       setAudioUrl(response.audioUrl);
     } catch (error: any) {
-      message.error('克隆失败：' + (error.message || '未知错误'));
+      if (!(error instanceof ApiError && error.code === 4009)) {
+        message.error('克隆失败：' + (error.message || '未知错误'));
+      }
       console.error('克隆失败:', error);
     } finally {
       setCloning(false);
@@ -62,7 +70,7 @@ const VoiceClone: React.FC = () => {
     <div className="space-y-10">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-4xl font-black tracking-tighter mb-2">声音克隆 <span className="brand-text-gradient">Engine v1.0</span></h2>
+          <h2 className="text-4xl font-black tracking-tighter mb-2">声音克隆 <span className="brand-text-gradient pr-2">Engine</span></h2>
           <p className="text-gray-500">上传一段参考音频，输入文本，即可生成克隆声音。</p>
         </div>
       </div>

@@ -5,6 +5,8 @@ import { AssetNode } from '../../types';
 import * as publishAPI from '../../api/publish';
 import { message } from 'antd';
 import { publishGenerationRecord } from '../../api/generation';
+import { SecureImage } from '../SecureImage';
+import { SecureVideo } from '../SecureVideo';
 
 interface PublishModalProps {
   asset: AssetNode;
@@ -119,8 +121,17 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, 
     <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in" onClick={onClose}>
       <div className="bg-[#0d1121] w-full max-w-4xl rounded-[3rem] shadow-2xl flex overflow-hidden border border-white/10" onClick={e => e.stopPropagation()}>
         <div className="w-1/2 bg-black relative">
-          {asset.type === 'image' && <img src={asset.url} alt={asset.name} className="w-full h-full object-contain" />}
-          {asset.type === 'video' && <video src={asset.url} controls className="w-full h-full object-contain" />}
+          {asset.type === 'image' && <SecureImage src={asset.url} alt={asset.name} className="w-full h-full object-contain" />}
+          {asset.type === 'video' && (
+            <SecureVideo
+              src={asset.url}
+              poster={asset.thumbnail}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-contain"
+            />
+          )}
         </div>
         <div className="w-1/2 flex flex-col p-10">
           <div className="flex items-center justify-between mb-8">

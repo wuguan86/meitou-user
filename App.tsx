@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { getCurrentUser, logout } from './api/auth';
+import { getCurrentSite } from './api/site';
 import Sidebar from './components/Sidebar';
 import Home from './components/Home';
 import Assets from './components/Assets';
@@ -18,10 +19,11 @@ import RechargeModal from './components/Modals/RechargeModal';
 import InspirationModal from './components/Modals/InspirationModal';
 import AssetDetailModal from './components/Modals/AssetDetailModal';
 import PublishModal from './components/Modals/PublishModal';
-import { PageType, User, Inspiration, AssetNode } from './types';
+import { PageType, User, Inspiration, AssetNode, Site } from './types';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
+  const [siteConfig, setSiteConfig] = useState<Site | null>(null);
   const [currentPage, setCurrentPage] = useState<PageType>('home');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isRechargeOpen, setIsRechargeOpen] = useState(false);
@@ -46,6 +48,28 @@ const App: React.FC = () => {
 
   // Check for existing session on mount
   useEffect(() => {
+    const fetchSiteConfig = async () => {
+      try {
+        const config = await getCurrentSite();
+        setSiteConfig(config);
+        // Apply title and favicon
+        if (config.websiteTitle) document.title = config.websiteTitle;
+        if (config.favicon) {
+           const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+           if (link) link.href = config.favicon;
+           else {
+               const newLink = document.createElement('link');
+               newLink.rel = 'icon';
+               newLink.href = config.favicon;
+               document.head.appendChild(newLink);
+           }
+        }
+      } catch (err) {
+        console.error('Failed to fetch site config', err);
+      }
+    };
+    fetchSiteConfig();
+
     const checkLoginStatus = async () => {
       const token = localStorage.getItem('app_token');
       if (token) {
@@ -77,6 +101,12 @@ const App: React.FC = () => {
     checkLoginStatus();
   }, []);
 
+  useEffect(() => {
+    const handler = () => setIsRechargeOpen(true);
+    window.addEventListener('app:open-recharge', handler);
+    return () => window.removeEventListener('app:open-recharge', handler);
+  }, []);
+
   const handleLoginSuccess = (userData: Partial<User>) => {
     setUser(prev => ({ ...prev, ...userData, isLoggedIn: true }));
   };
@@ -106,19 +136,19 @@ const App: React.FC = () => {
   }
 
   if (!user.isLoggedIn) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return <Login onLoginSuccess={handleLoginSuccess} siteConfig={siteConfig} />;
   }
 
   const renderContent = () => {
     switch (currentPage) {
-      case 'home': return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} />;
+      case 'home': return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} siteConfig={siteConfig} />;
       case 'assets': return <Assets onSelectAsset={setSelectedAsset} />;
-      case 'image-analysis': return <ImageAnalysis onDeductPoints={handleDeductPoints} />;
-      case 'text-to-image': return <TextToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
-      case 'text-to-video': return <TextToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
-      case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
-      case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} />;
-      case 'voice-clone': return <VoiceClone />;
+      case 'image-analysis': return <ImageAnalysis onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'text-to-image': return <TextToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'text-to-video': return <TextToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'voice-clone': return <VoiceClone availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
       case 'profile': return (
         <Profile 
           user={user} 
@@ -133,7 +163,7 @@ const App: React.FC = () => {
           getScrollContainer={getScrollContainer}
         />
       );
-      default: return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} />;
+      default: return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} siteConfig={siteConfig} />;
     }
   };
 

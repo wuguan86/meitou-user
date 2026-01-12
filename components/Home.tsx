@@ -2,18 +2,21 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { message } from 'antd';
 import { Type, Layers, Video, PlaySquare, Mic2, Sparkles, ArrowRight, Zap, Heart, Eye } from 'lucide-react';
-import { PageType, Inspiration, AssetNode } from '../types';
+import { PageType, Inspiration, AssetNode, Site } from '../types';
 import { getActiveAds, MarketingAd } from '../api/marketing';
 import * as publishAPI from '../api/publish';
 import RichTextModal from './Modals/RichTextModal';
+import { SecureImage } from './SecureImage';
+import { SecureVideo } from './SecureVideo';
 
 interface HomeProps {
   onNavigate: (page: PageType) => void;
   onSelectWork: (work: Inspiration) => void;
   userId?: number; // 用户ID
+  siteConfig?: Site | null;
 }
 
-const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
+const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfig }) => {
   const [activeSlide, setActiveSlide] = useState(0);
   const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
   const [ads, setAds] = useState<MarketingAd[]>([]); // 广告数据
@@ -54,9 +57,28 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
 
   const masonryColumns = useMemo(() => {
     const cols: Inspiration[][] = Array.from({ length: columnCount }, () => []);
-    inspirations.forEach((item, index) => {
-      cols[index % columnCount].push(item);
+    const colHeights = new Array(columnCount).fill(0);
+
+    inspirations.forEach((item) => {
+      // 寻找当前高度最小的列
+      let minHeight = colHeights[0];
+      let minColIndex = 0;
+      
+      for (let i = 1; i < columnCount; i++) {
+        if (colHeights[i] < minHeight) {
+          minHeight = colHeights[i];
+          minColIndex = i;
+        }
+      }
+
+      cols[minColIndex].push(item);
+      
+      // 更新列高度 (假设宽度为1，高度 = 1 / aspectRatio)
+      // 如果没有宽高比，默认假设为正方形 (1:1)
+      const ratio = item.aspectRatio || 1.0;
+      colHeights[minColIndex] += (1 / ratio);
     });
+    
     return cols;
   }, [inspirations, columnCount]);
 
@@ -185,12 +207,27 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
         let prompt = '';
         let originalImageUrl: string | undefined = undefined;
         let generationConfig: any = undefined;
+        let aspectRatio = 1.0; // 默认 1:1
         
         if (content.generationConfig) {
           try {
             const config = JSON.parse(content.generationConfig);
             prompt = config.prompt || '';
             generationConfig = config; // 保存完整的配置对象
+            
+            // 解析宽高比
+            if (config.aspectRatio && typeof config.aspectRatio === 'string' && config.aspectRatio !== 'Auto') {
+               const parts = config.aspectRatio.split(':');
+               if (parts.length === 2) {
+                 const w = parseFloat(parts[0]);
+                 const h = parseFloat(parts[1]);
+                 if (w > 0 && h > 0) {
+                   aspectRatio = w / h;
+                 }
+               }
+            } else if (content.type === 'video') {
+                aspectRatio = 16 / 9; // 视频默认为 16:9
+            }
             
             // 对于图生图/图生视频，获取参考图片
             const img2imgRef = config.referenceImages?.[0] || config.urls?.[0];
@@ -227,6 +264,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
           userId: content.userId,
           contentUrl: content.contentUrl,
           isLiked: content.isLiked || false, // 直接使用后端返回的状态
+          aspectRatio: aspectRatio,
         };
       });
       
@@ -327,7 +365,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
               className={`absolute inset-0 transition-opacity duration-1000 ${idx === activeSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'} ${'linkType' in slide ? 'cursor-pointer' : ''}`}
               onClick={() => 'linkType' in slide && handleAdClick(slide)}
             >
-              <img src={slide.img} className="w-full h-full object-cover" alt={slide.title} />
+              <SecureImage src={slide.img} className="w-full h-full object-cover" alt={slide.title} />
               <div className="absolute inset-0 bg-gradient-to-r from-[#060813] via-[#060813]/60 to-transparent flex flex-col justify-center px-4 sm:px-8 lg:px-16">
                 <div className="flex flex-wrap gap-2 mb-3 sm:mb-4">
                   {slide.tags.map((tag, i) => (
@@ -436,13 +474,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
                       {item.type === 'video' ? (
                         <div className="relative w-full">
                           {item.img && item.img !== item.contentUrl ? (
-                            <img 
+                            <SecureImage 
                               src={item.img} 
                               className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
                               alt={item.title} 
                             />
                           ) : (
-                            <video 
+                            <SecureVideo 
                               src={item.contentUrl} 
                               className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
                               muted
@@ -456,13 +494,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
                           </div>
                         </div>
                       ) : (
-                        <img src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
+                        <SecureImage src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
                         <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
-                            <img src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
+                            <SecureImage src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
                             <span className="text-[11px] font-black text-white">{item.user}</span>
                           </div>
                           <button 
@@ -480,18 +518,24 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
               ))}
             </div>
             
-            {hasMore && (
-              <div ref={observerTarget} className="flex justify-center pt-8 pb-4">
-                {loadingMore ? (
-                  <div className="flex items-center space-x-2 text-gray-500 text-sm">
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                    <span>加载中...</span>
+            <div ref={observerTarget} className="flex justify-center py-8 min-h-[5rem]">
+              {loadingMore ? (
+                <div className="flex flex-col items-center space-y-4">
+                  <div className="w-8 h-8 border-2 border-[#2cc2f5] border-t-[#ff2e8c] rounded-full animate-spin shadow-[0_0_15px_rgba(44,194,245,0.3)]"></div>
+                  <span className="text-gray-500 text-xs font-bold tracking-[0.2em] animate-pulse">LOADING MORE...</span>
+                </div>
+              ) : hasMore ? (
+                <div className="h-20 w-full"></div>
+              ) : (
+                inspirations.length > 0 && (
+                  <div className="flex items-center space-x-2 opacity-20 py-4">
+                    <div className="w-1 h-1 rounded-full bg-white"></div>
+                    <div className="w-1 h-1 rounded-full bg-white"></div>
+                    <div className="w-1 h-1 rounded-full bg-white"></div>
                   </div>
-                ) : (
-                  <div className="h-8 w-full"></div> 
-                )}
-              </div>
-            )}
+                )
+              )}
+            </div>
           </div>
         )}
       </section>
@@ -502,7 +546,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId }) => {
            <span className="text-lg font-black tracking-tighter uppercase">Meji AI</span>
         </div>
         <p className="text-gray-600 text-[10px] font-bold tracking-widest uppercase">
-          Copyright © 2025 Meitou Tech. Research Institute.
+          {siteConfig?.footerCopyright || 'Copyright © 2025 Meitou Tech. Research Institute.'}
         </p>
       </footer>
 

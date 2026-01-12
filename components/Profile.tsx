@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { User } from '../types';
 import { UserAsset } from '../api/asset';
-import { getGenerationRecords, GenerationRecord } from '../api/generation';
+import { getGenerationRecords, GenerationRecord, deleteGenerationRecord } from '../api/generation';
 import { Edit, Gem, Trash2, Download, Send, Music, Video, Image as ImageIcon } from 'lucide-react';
 import { message, Modal, ConfigProvider } from 'antd';
+import { SecureImage } from './SecureImage';
+import { SecureVideo } from './SecureVideo';
+import { storageApi } from '../api/storage';
+import { needsSignedUrl } from '../hooks/useSignedUrl';
 
 interface ProfileProps {
   user: User;
@@ -138,16 +142,31 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
       title: '确认删除',
       content: '确定要删除这个作品吗？',
       onOk: async () => {
-        // TODO: Implement delete API for generation records
-        console.log('Delete record', recordId);
-        message.success('删除成功');
+        try {
+          await deleteGenerationRecord(recordId);
+          setRecords(prev => prev.filter(r => r.id !== recordId));
+          setTotal(prev => prev - 1);
+          message.success('删除成功');
+        } catch (error) {
+          console.error('Failed to delete record', error);
+          message.error('删除失败');
+        }
       }
     });
   };
 
-  const handleDownload = (e: React.MouseEvent, url: string) => {
+  const handleDownload = async (e: React.MouseEvent, url: string) => {
     e.stopPropagation();
-    window.open(url, '_blank');
+    try {
+      if (!needsSignedUrl(url)) {
+        window.open(url, '_blank');
+        return;
+      }
+      const signed = await storageApi.getFileUrl(url);
+      window.open(signed, '_blank');
+    } catch (error) {
+      window.open(url, '_blank');
+    }
   };
 
   const handlePublish = (e: React.MouseEvent, record: GenerationRecord) => {
@@ -198,6 +217,15 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
     }
   };
 
+  const shouldUseThumbnail = (thumbnailUrl?: string, contentUrl?: string) => {
+    if (!thumbnailUrl) return false;
+    if (contentUrl && thumbnailUrl === contentUrl) return false;
+    const lower = thumbnailUrl.toLowerCase();
+    const isSnapshot = lower.includes('x-oss-process=video/snapshot') || lower.includes('video%2fsnapshot') || lower.includes('video/snapshot');
+    if (!isSnapshot && /\.(mp4|webm|mov|m3u8)(\?|$)/i.test(thumbnailUrl)) return false;
+    return true;
+  };
+
   return (
     <div className="w-full flex flex-col space-y-8 pb-20">
       {/* Header Section */}
@@ -214,7 +242,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
         <div className="flex flex-col md:flex-row items-center md:items-start justify-between relative z-10 gap-6">
           <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
             <div className="w-24 h-24 rounded-full border-2 border-white/10 p-1">
-              <img 
+              <SecureImage 
                 src={user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 
                 alt="Avatar" 
                 className="w-full h-full rounded-full bg-[#0b0d17]"
@@ -224,8 +252,6 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
             <div className="flex flex-col items-center md:items-start space-y-2">
               <h2 className="text-2xl font-bold text-white">{user.name}</h2>
               <div className="flex items-center gap-4 text-sm text-gray-400">
-                <span>ID: {user.id}</span>
-                <span className="w-px h-3 bg-gray-700" />
                 <span>{user.phone || '未绑定手机'}</span>
                 <span className="w-px h-3 bg-gray-700" />
                 <span>注册于 {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '未知'}</span>
@@ -237,7 +263,9 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-sm">当前算力</span>
               <div className="flex items-center gap-2 text-2xl font-bold text-white">
-                <Gem className="w-6 h-6 text-[#2cc2f5]" />
+                <div className="w-8 h-8 brand-gradient rounded-full flex items-center justify-center">
+                  <Gem className="w-4 h-4 text-white" />
+                </div>
                 {user.points.toLocaleString()}
               </div>
             </div>
@@ -260,7 +288,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
             onClick={() => setActiveTab(tab)}
             className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === tab 
-                ? 'bg-[#2cc2f5] text-white shadow-lg' 
+                ? 'brand-gradient text-white shadow-lg' 
                 : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
@@ -324,7 +352,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                       generationParams: record.generationParams,
                       generationType: record.type,
                       generationConfig,
-                      isPublish: record.isPublish === '1',
+                      isPublish: String(record.isPublish) === '1',
                       originalImageUrl,
                       status: record.status
                   })
@@ -333,15 +361,29 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                   {/* Thumbnail / Content */}
                   {record.thumbnailUrl || record.contentUrl ? (
                     record.fileType === 'video' ? (
-                       // If we have a thumbnail, show it, otherwise try to show video (though video in grid might be heavy)
-                       // Using thumbnail if available is better.
-                       record.thumbnailUrl ? (
-                          <img src={record.thumbnailUrl} alt={record.prompt} className="w-full h-full object-cover" />
+                       shouldUseThumbnail(record.thumbnailUrl, record.contentUrl) ? (
+                          <SecureImage
+                            src={record.thumbnailUrl}
+                            alt={record.prompt}
+                            className="w-full h-full object-cover"
+                            fallback={
+                              <div className="w-full h-full flex items-center justify-center">
+                                {getAssetIcon(record.fileType)}
+                              </div>
+                            }
+                          />
                        ) : (
-                          <video src={record.contentUrl} className="w-full h-full object-cover" muted />
+                          <SecureVideo
+                            src={record.contentUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                            loop
+                            playsInline
+                            preload="metadata"
+                          />
                        )
                     ) : (
-                      <img src={record.thumbnailUrl || record.contentUrl} alt={record.prompt} className="w-full h-full object-cover" />
+                      <SecureImage src={record.thumbnailUrl || record.contentUrl} alt={record.prompt} className="w-full h-full object-cover" />
                     )
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
@@ -350,7 +392,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                   )}
 
                   {/* Status Badge */}
-                  {record.isPublish === '1' && (
+                  {String(record.isPublish) === '1' && (
                     <div className="absolute top-2 right-2 px-2 py-0.5 bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-medium rounded-full">
                       已发布
                     </div>
@@ -388,7 +430,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                    {record.status !== 'failed' && record.isPublish !== '1' && (
+                    {record.status !== 'failed' && String(record.isPublish) !== '1' && (
                       <button 
                           onClick={(e) => handlePublish(e, record)}
                           className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"

@@ -4,6 +4,8 @@ import { message } from 'antd';
 import { X, Heart, Copy, ImageIcon, Gem } from 'lucide-react';
 import { Inspiration, PageType } from '../../types';
 import * as publishAPI from '../../api/publish';
+import { SecureImage } from '../SecureImage';
+import { SecureVideo } from '../SecureVideo';
 
 interface InspirationModalProps {
   work: Inspiration | null;
@@ -167,10 +169,10 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
             }}
         >
             <div className="bg-black p-2 rounded-xl border border-white/20 shadow-2xl mb-2 animate-in fade-in zoom-in duration-200">
-                <img 
-                    src={workData.originalImageUrl} 
-                    alt="原图大图" 
-                    className="max-w-[400px] max-h-[400px] object-contain rounded-lg"
+                <SecureImage
+                  src={workData.originalImageUrl}
+                  alt="原图大图"
+                  className="max-w-[400px] max-h-[400px] object-contain rounded-lg"
                 />
             </div>
         </div>
@@ -178,22 +180,22 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
       <div className="bg-[#0d1121] w-full max-w-6xl h-[90vh] max-h-[800px] rounded-[3rem] shadow-2xl flex overflow-hidden border border-white/10" onClick={e => e.stopPropagation()}>
         <div className="w-3/5 bg-black relative group" onContextMenu={(e) => e.preventDefault()}>
           {workData.type === 'video' ? (
-            <video 
-              src={workData.contentUrl || workData.img} 
+            <SecureVideo
+              src={workData.contentUrl || workData.img}
               controls 
               controlsList="nodownload"
               disablePictureInPicture
               className="w-full h-full object-contain" 
             />
           ) : (
-            <img src={workData.img} alt={workData.title} className="w-full h-full object-contain" />
+            <SecureImage src={workData.img} alt={workData.title} className="w-full h-full object-contain" />
           )}
         </div>
         <div className="w-2/5 flex flex-col p-10">
           <div className="flex items-start justify-between mb-8">
             <div>
               <div className="flex items-center space-x-3 mb-3">
-                <img src={workData.avatar} className="w-12 h-12 rounded-full border-2 border-white/10" alt={workData.user} />
+                <SecureImage src={workData.avatar} className="w-12 h-12 rounded-full border-2 border-white/10" alt={workData.user} />
                 <div>
                   <p className="font-bold text-white text-lg">{workData.user}</p>
                   <p className="text-xs text-gray-500 font-mono">Creator ID: {workData.id}</p>
@@ -218,7 +220,7 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
                         onMouseEnter={handleOriginalEnter}
                         onMouseLeave={() => setShowOriginal(false)}
                     >
-                        <img src={workData.originalImageUrl} alt="原图" className="w-full h-full object-cover"/>
+                        <SecureImage src={workData.originalImageUrl} alt="原图" className="w-full h-full object-cover" />
                     </div>
                 )}
             </div>

@@ -56,6 +56,7 @@ export interface Inspiration {
   // 用于显示动态高度
   contentUrl?: string; // 内容URL（与img字段一致）
   isLiked?: boolean; // 当前用户是否已点赞
+  aspectRatio?: number; // 宽高比 (width / height)
 }
 
 // 图片生成配置接口
@@ -87,7 +88,13 @@ export interface Site {
   manual?: string; // 使用手册链接
   userAgreement?: string; // 用户协议
   privacyPolicy?: string; // 隐私政策
-  copyright?: string; // 版权信息
+  copyright?: string; // 版权信息(顶部)
+  footerCopyright?: string; // 底部版权信息
+  logo?: string; // Logo图片地址
+  websiteName?: string; // 网站名称
+  loginSubtext?: string; // 登录框小文字
+  websiteTitle?: string; // 网站Title信息
+  favicon?: string; // Favicon图标地址
   status: number;
   deleted: number;
   createTime: string;

@@ -23,6 +23,7 @@ import { PageType, User } from '../types';
 import { getVisibleMenus, MenuConfig } from '../api/menu';
 import * as customerServiceAPI from '../api/customerService';
 import { getCurrentSite } from '../api/site';
+import { SecureImage } from './SecureImage';
 
 interface SidebarProps {
   currentPage: PageType;
@@ -45,6 +46,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [csConfig, setCsConfig] = useState<customerServiceAPI.CustomerServiceConfig | null>(null);
   const [manualUrl, setManualUrl] = useState('');
   const [copyright, setCopyright] = useState('');
+  const [logo, setLogo] = useState('');
+  const [websiteName, setWebsiteName] = useState('');
 
   // 菜单代码到前端ID的映射
   const codeToIdMap: Record<string, PageType> = {
@@ -85,6 +88,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             }
             if (site.copyright) {
               setCopyright(site.copyright);
+            }
+            if (site.logo) {
+              setLogo(site.logo);
+            }
+            if (site.websiteName) {
+              setWebsiteName(site.websiteName);
             }
           }
         } catch (err) {
@@ -160,13 +169,17 @@ const Sidebar: React.FC<SidebarProps> = ({
         {/* 移动端关闭按钮 */}
         <div className="lg:hidden flex items-center justify-between p-4 border-b border-white/5">
           <div className="flex items-center space-x-2">
-            <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
-              <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
-              <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                <Heart className="w-4 h-4 text-white fill-current" />
-              </div>
-            </div>
-            <span className="text-xl font-bold text-white tracking-tight">美迹AI</span>
+            {logo ? (
+                <SecureImage src={logo} alt="Logo" className="w-9 h-9 object-contain rounded-xl" />
+            ) : (
+                <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
+                  <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
+                  <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                    <Heart className="w-4 h-4 text-white fill-current" />
+                  </div>
+                </div>
+            )}
+            <span className="text-xl font-bold text-white tracking-tight">{websiteName || '美迹AI'}</span>
           </div>
           <button
             onClick={onMobileClose}
@@ -178,13 +191,17 @@ const Sidebar: React.FC<SidebarProps> = ({
         
         {/* Brand Header - 桌面端显示 */}
         <div className="hidden lg:flex p-6 items-center space-x-2">
-        <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
-          <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
-          <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
-            <Heart className="w-4 h-4 text-white fill-current" />
-          </div>
-        </div>
-        <span className="text-xl font-bold text-white tracking-tight">美迹AI</span>
+        {logo ? (
+            <SecureImage src={logo} alt="Logo" className="w-9 h-9 object-contain rounded-xl" />
+        ) : (
+            <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
+              <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
+              <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                <Heart className="w-4 h-4 text-white fill-current" />
+              </div>
+            </div>
+        )}
+        <span className="text-xl font-bold text-white tracking-tight">{websiteName || '美迹AI'}</span>
         {copyright && (
           <span className="text-[10px] text-gray-500 border border-white/10 px-2 rounded-full py-0.5 font-mono ml-auto">
             {copyright}
@@ -256,14 +273,16 @@ const Sidebar: React.FC<SidebarProps> = ({
           onClick={onOpenProfile}
         >
           <div className="flex items-center space-x-3 mb-4">
-            <img 
-              src={user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 
-              className="w-10 h-10 rounded-full border border-white/10" 
-              alt="Avatar" 
-            />
+            <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden">
+              <SecureImage 
+                src={user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} 
+                className="w-full h-full object-cover" 
+                alt="Avatar" 
+                referrerPolicy="no-referrer"
+              />
+            </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-white truncate">{user.name}</p>
-              <p className="text-[10px] text-gray-500 font-mono">ID: {user.id}</p>
             </div>
           </div>
           <div className="flex items-center justify-between">
@@ -290,7 +309,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
               {isCsHovered && (
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-4 bg-[#1f2333] border border-white/10 rounded-2xl shadow-2xl flex flex-col items-center space-y-3 animate-in fade-in zoom-in-95 duration-200 z-50">
-                  <img src={csConfig.qrCodeUrl} alt="QR Code" className="w-32 h-32 rounded-lg object-contain bg-white" />
+                  <SecureImage src={csConfig.qrCodeUrl} alt="QR Code" className="w-32 h-32 rounded-lg object-contain bg-white" />
                   {csConfig.contactText && <p className="text-[10px] text-gray-400 font-bold text-center whitespace-pre-wrap">{csConfig.contactText}</p>}
                   {!csConfig.contactText && <p className="text-[10px] text-gray-400 font-bold text-center">添加您的专属客服经理</p>}
               </div>

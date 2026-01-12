@@ -6,17 +6,21 @@ import * as analysisAPI from '../../api/analysis';
 import * as uploadAPI from '../../api/upload';
 import { PlatformModelResponse, optimizePrompt } from '../../api/generation';
 import { getApiBaseUrl } from '../../api/config';
+import { ApiError, promptRechargeForInsufficientBalance } from '../../api/index';
 
 interface ImageAnalysisProps {
   onDeductPoints?: (points: number) => void;
+  availablePoints?: number;
+  onOpenRecharge?: () => void;
 }
 
-const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
+const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, availablePoints, onOpenRecharge }) => {
   const [mode, setMode] = useState<'image' | 'video'>('image');
   const [file, setFile] = useState<string | null>(null);
   const [rawFile, setRawFile] = useState<File | null>(null);
   const [direction, setDirection] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [result, setResult] = useState('');
   const [model, setModel] = useState('');
@@ -155,6 +159,10 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (mode === 'video' && file.size > 200 * 1024 * 1024) {
+        message.error('视频文件大小不能超过200MB');
+        return;
+      }
       setRawFile(file);
       const reader = new FileReader();
       reader.onload = (ev) => setFile(ev.target?.result as string);
@@ -176,21 +184,30 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
       // Upload file to OSS first
       let fileUrl = file;
       if (rawFile) {
+        setUploading(true);
         try {
           if (mode === 'image') {
             fileUrl = await uploadAPI.uploadImage(rawFile);
           } else {
             fileUrl = await uploadAPI.uploadVideo(rawFile);
           }
+          message.success('文件上传成功，正在进行深度分析...');
         } catch (error) {
           console.error('File upload failed:', error);
           throw new Error('文件上传失败，请重试');
+        } finally {
+          setUploading(false);
         }
       }
 
       const baseUrl = getApiBaseUrl();
       
       const cost = calculateCost();
+      if (cost > 0 && availablePoints !== undefined && availablePoints < cost) {
+        promptRechargeForInsufficientBalance();
+        setAnalyzing(false);
+        return;
+      }
       if (cost > 0 && onDeductPoints) {
         onDeductPoints(cost);
       }
@@ -212,6 +229,32 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
           body: JSON.stringify(body)
         });
 
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const jsonData = await response.json();
+          if (jsonData?.code !== undefined) {
+            if (jsonData.code === 200) {
+              const payload = jsonData.data;
+              const text = payload?.result || payload?.content || payload?.message || '';
+              if (typeof text === 'string' && text) {
+                setResult(text);
+                return;
+              }
+              setResult(typeof payload === 'string' ? payload : JSON.stringify(payload ?? '', null, 2));
+              return;
+            }
+
+            if (jsonData.code === 4009) {
+              promptRechargeForInsufficientBalance();
+              throw new ApiError(jsonData.message || '算力不足', 4009);
+            }
+
+            throw new Error(jsonData.message || '分析失败');
+          }
+
+          throw new Error(jsonData?.message || '分析失败');
+        }
+
         if (!response.ok) {
           if (response.status === 401) {
             throw new Error('登录已过期，请重新登录');
@@ -220,6 +263,10 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
           let errorMessage = '分析失败';
           try {
             const errorData = await response.json();
+            if (errorData?.code === 4009) {
+              promptRechargeForInsufficientBalance();
+              throw new ApiError(errorData.message || '算力不足', 4009);
+            }
             errorMessage = errorData.message || errorData.error || `分析失败 (${response.status})`;
           } catch (e) {
             errorMessage = `分析失败 (${response.status})`;
@@ -258,6 +305,13 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
               try {
                 if (data.startsWith('{')) {
                   const jsonData = JSON.parse(data);
+                  if (jsonData?.code !== undefined && jsonData.code !== 200) {
+                    if (jsonData.code === 4009) {
+                      promptRechargeForInsufficientBalance();
+                      throw new ApiError(jsonData.message || '算力不足', 4009);
+                    }
+                    throw new Error(jsonData.message || '分析过程中发生错误');
+                  }
                   if (jsonData.choices && jsonData.choices[0]?.delta?.content) {
                     const content = jsonData.choices[0].delta.content;
                     resultText += content;
@@ -291,6 +345,13 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
                  try {
                     if (data.startsWith('{')) {
                        const jsonData = JSON.parse(data);
+                       if (jsonData?.code !== undefined && jsonData.code !== 200) {
+                         if (jsonData.code === 4009) {
+                           promptRechargeForInsufficientBalance();
+                           throw new ApiError(jsonData.message || '算力不足', 4009);
+                         }
+                         throw new Error(jsonData.message || '分析过程中发生错误');
+                       }
                        if (jsonData.choices && jsonData.choices[0]?.delta?.content) {
                           resultText += jsonData.choices[0].delta.content;
                           setResult(resultText);
@@ -304,7 +365,9 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
         }
       }
     } catch (error: any) {
-      message.error(error.message || '分析失败');
+      if (!(error instanceof ApiError && error.code === 4009)) {
+        message.error(error.message || '分析失败');
+      }
       console.error('分析失败:', error);
       if (!result) {
         setResult('');
@@ -368,6 +431,10 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
               )}
             </div>
 
+            {mode === 'video' && (
+              <p className="text-xs text-gray-500 text-center !mt-2">仅支持200MB以下的视频分析。</p>
+            )}
+
             <div className="space-y-3">
               <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest">AI 模型选择</label>
               <div className="relative">
@@ -428,15 +495,17 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
 
             <button 
               onClick={handleAnalyze}
-              disabled={!file || analyzing}
+              disabled={!file || analyzing || uploading}
               className="w-full brand-gradient py-5 rounded-2xl font-black text-white flex items-center justify-center space-x-3 disabled:opacity-30 transition-all hover:scale-[1.02] shadow-xl glow-cyan"
             >
-              {analyzing ? (
+              {analyzing || uploading ? (
                 <RefreshCcw className="w-5 h-5 animate-spin" />
               ) : (
                 <Zap className="w-5 h-5 fill-current" />
               )}
-              <span className="tracking-[0.2em]">{analyzing ? 'ANALYZING...' : '开始深度分析'}</span>
+              <span className="tracking-[0.2em]">
+                {uploading ? 'UPLOADING...' : (analyzing ? 'ANALYZING...' : '开始深度分析')}
+              </span>
             </button>
           </div>
 
@@ -449,9 +518,33 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints }) => {
                {result && <button className="text-[10px] font-black text-cyan-400 uppercase">Export Report</button>}
             </div>
             <div className="flex-1 bg-[#060813] border border-white/5 rounded-[2rem] p-8 text-gray-400 leading-relaxed custom-scrollbar overflow-y-auto">
+              {((analyzing && mode === 'video') || uploading) && (
+                <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-200 text-sm animate-pulse">
+                  <div className="flex items-start space-x-3">
+                    <div className="mt-0.5 relative shrink-0">
+                      <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20"></div>
+                      <Zap className="w-4 h-4 text-blue-400 relative z-10" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-100">
+                        {uploading ? `正在上传${mode === 'video' ? '视频' : '图片'}...` : '正在分析视频，请耐心等待'}
+                      </p>
+                      <p className="mt-1 opacity-80 text-xs leading-relaxed">
+                        {uploading 
+                          ? '请勿关闭或离开当前页面，以免上传中断。' 
+                          : '分析时间会随视频大小增加，请勿关闭或离开当前页面，否则结果将不会保存。'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               {result ? (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  {result.split('\n').map((line, i) => <p key={i} className="mb-4">{line}</p>)}
+                <div className="space-y-4">
+                  {result.split('\n').map((line, i) => (
+                    <p key={i} className={line.trim() ? '' : 'h-4'}>
+                      {line}
+                    </p>
+                  ))}
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center opacity-20">
