@@ -393,7 +393,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
         if (!userId) return;
         try {
           await deleteAsset(userId, id);
-          await loadAssets();
+          setAssets(prev => prev.filter(item => item.id !== id));
           setSelectedIds(prev => {
             const next = new Set(prev);
             next.delete(id);
@@ -417,8 +417,8 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
         if (!userId) return;
         try {
           await deleteFolder(userId, folderId);
-          await loadFolders();
-          await loadAllFolders(); // 重新加载所有文件夹
+          setFolders(prev => prev.filter(f => f.id !== folderId));
+          loadAllFolders(); // 重新加载所有文件夹
           message.success('删除成功');
         } catch (error: any) {
           console.error('删除文件夹失败：', error);
@@ -438,7 +438,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
       onOk: async () => {
         try {
           await deleteAssets(userId, Array.from(selectedIds));
-          await loadAssets();
+          setAssets(prev => prev.filter(item => !selectedIds.has(item.id)));
           setSelectedIds(new Set());
           message.success('批量删除成功');
         } catch (error: any) {

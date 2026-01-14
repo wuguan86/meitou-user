@@ -19,6 +19,7 @@ export interface AssetNode {
   generationConfig?: ImageGenerationConfig | VideoGenerationConfig;
   isPublish?: boolean;
   status?: string;
+  hideActions?: boolean; // 是否隐藏所有操作按钮（用于预览等场景）
 }
 
 export interface User {

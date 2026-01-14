@@ -207,15 +207,15 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
         shutProgress: false,
       });
       
-      // 如果返回了任务ID且状态为处理中，开始轮询
-      if (response.taskId && (response.status === 'processing' || response.status === 'running')) {
-         const taskId = response.taskId;
+      // 如果返回了记录ID且状态为处理中，开始轮询
+      if (response.generationRecordId && (response.status === 'processing' || response.status === 'running')) {
+         const recordId = response.generationRecordId;
          let retries = 0;
          while (true) {
              // 前端每隔 2-3 秒问一次后端结果
              await new Promise(resolve => setTimeout(resolve, 2500));
              
-             const statusRes = await generationAPI.getTaskStatus(taskId);
+             const statusRes = await generationAPI.getTaskStatus(recordId);
              
              // 一旦后端轮询结果返回 status: succeeded 或者 progress: 100
              if (statusRes.status === 'success' || statusRes.status === 'succeeded' || statusRes.status === 'completed' || statusRes.progress === 100) {
@@ -255,6 +255,44 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
         aspectRatio: aspectRatio === 'Auto' ? undefined : aspectRatio,
       };
 
+      const normalizeUrl = (input?: string) => {
+        if (!input) return input;
+        try {
+          const parsed = new URL(input);
+          return `${parsed.origin}${parsed.pathname}`;
+        } catch {
+          const idx = input.indexOf('?');
+          return idx >= 0 ? input.slice(0, idx) : input;
+        }
+      };
+
+      const buildRecordIdByUrl = async () => {
+        const urlSet = new Set((response.imageUrls || []).map(normalizeUrl).filter(Boolean) as string[]);
+        const idByUrl = new Map<string, number>();
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const page = await generationAPI.getGenerationRecords(1, 50, 'image');
+          for (const record of page.records) {
+            const key = normalizeUrl(record.contentUrl);
+            if (key) {
+              idByUrl.set(key, record.id);
+            }
+          }
+          const resolvedCount = Array.from(urlSet).filter((u) => idByUrl.has(u)).length;
+          if (resolvedCount === urlSet.size) {
+            return idByUrl;
+          }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        return idByUrl;
+      };
+
+      let recordIdByUrl = new Map<string, number>();
+      try {
+        recordIdByUrl = await buildRecordIdByUrl();
+      } catch {
+        recordIdByUrl = new Map<string, number>();
+      }
+
       // 将响应转换为AssetNode格式
       const newImages: AssetNode[] = response.imageUrls.map((url, i) => ({
         id: `gen-${Date.now()}-${i}`,
@@ -265,6 +303,7 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
         prompt: prompt,
         generationType: 'txt2img',
         generationConfig: generationConfig,
+        generationRecordId: recordIdByUrl.get(normalizeUrl(url) || '') || (i === 0 ? response.generationRecordId : undefined),
       }));
       
       setImages(newImages);

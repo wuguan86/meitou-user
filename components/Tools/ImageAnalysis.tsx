@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { message } from 'antd';
 import { Upload, Search, Image as ImageIcon, Video, FileText, Zap, ChevronRight, X, RefreshCcw, Wand2, Gem } from 'lucide-react';
 import * as analysisAPI from '../../api/analysis';
@@ -12,9 +12,10 @@ interface ImageAnalysisProps {
   onDeductPoints?: (points: number) => void;
   availablePoints?: number;
   onOpenRecharge?: () => void;
+  onRefreshBalance?: () => void;
 }
 
-const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, availablePoints, onOpenRecharge }) => {
+const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, availablePoints, onOpenRecharge, onRefreshBalance }) => {
   const [mode, setMode] = useState<'image' | 'video'>('image');
   const [file, setFile] = useState<string | null>(null);
   const [rawFile, setRawFile] = useState<File | null>(null);
@@ -23,8 +24,76 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
   const [uploading, setUploading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [result, setResult] = useState('');
+  const [thinkingText, setThinkingText] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [isThinkingCollapsed, setIsThinkingCollapsed] = useState(true);
   const [model, setModel] = useState('');
   const [availableModels, setAvailableModels] = useState<PlatformModelResponse['models']>([]);
+
+  const thinkParserRef = useRef({
+    pending: '',
+    inThinking: false,
+    finalText: '',
+    thinkingText: ''
+  });
+
+  const safeParseJson = (input: string) => {
+    const trimmed = input.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  };
+
+  const toUserFriendlyMessage = (rawMessage: string, code?: number) => {
+    const messageText = (rawMessage || '').trim();
+    if (!messageText) return '分析失败';
+
+    if (/不存在该模型|model.+not.+found|not.+found.+model/i.test(messageText)) {
+      const modelMatch = messageText.match(/[:：]\s*([^\s]+)\s*$/);
+      const modelName = modelMatch?.[1]?.trim();
+      return modelName
+        ? `当前模型不可用，请切换其它模型或联系管理员配置（${modelName}）`
+        : '当前模型不可用，请切换其它模型或联系管理员配置';
+    }
+
+    if (/stream ended without result/i.test(messageText)) {
+      return '分析中断，未返回结果，请稍后重试';
+    }
+
+    if (/empty response body/i.test(messageText)) {
+      return '上游未返回有效内容，请稍后重试';
+    }
+
+    if (/^api error:\s*\d+/i.test(messageText)) {
+      return '上游服务暂时不可用，请稍后重试';
+    }
+
+    if (code === 502 || code === 503 || code === 504) {
+      return '上游服务暂时不可用，请稍后重试';
+    }
+
+    return messageText;
+  };
+
+  const toUserFriendlyError = (error: unknown) => {
+    if (error instanceof ApiError) {
+      return toUserFriendlyMessage(error.message, error.code);
+    }
+
+    const messageText = typeof (error as any)?.message === 'string' ? (error as any).message : '';
+    const parsed = messageText ? safeParseJson(messageText) : null;
+    if (parsed && typeof parsed === 'object') {
+      const code = typeof (parsed as any).code === 'number' ? (parsed as any).code : undefined;
+      const raw = (parsed as any).message || (parsed as any).msg || (parsed as any).error || messageText;
+      const rawText = typeof raw === 'string' ? raw : messageText;
+      return toUserFriendlyMessage(rawText, code);
+    }
+
+    return toUserFriendlyMessage(messageText || '分析失败');
+  };
 
   const currentModel = useMemo(
     () => availableModels.find(m => m.id === model),
@@ -155,6 +224,91 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
     );
   };
 
+  const splitForPartialTag = (input: string, tag: string) => {
+    const lower = input.toLowerCase();
+    const target = tag.toLowerCase();
+    const maxLen = Math.min(target.length - 1, input.length);
+    for (let len = maxLen; len >= 1; len--) {
+      if (lower.endsWith(target.slice(0, len))) {
+        return {
+          safe: input.slice(0, input.length - len),
+          pending: input.slice(input.length - len)
+        };
+      }
+    }
+    return { safe: input, pending: '' };
+  };
+
+  const resetThinkParser = () => {
+    thinkParserRef.current = {
+      pending: '',
+      inThinking: false,
+      finalText: '',
+      thinkingText: ''
+    };
+    setResult('');
+    setThinkingText('');
+    setIsThinking(false);
+    setIsThinkingCollapsed(true);
+  };
+
+  const applyThinkAwareAppend = (rawText: string) => {
+    if (!rawText) return;
+
+    const startTag = '<think>';
+    const endTag = '</think>';
+
+    let text = thinkParserRef.current.pending + rawText;
+    thinkParserRef.current.pending = '';
+
+    while (text) {
+      if (thinkParserRef.current.inThinking) {
+        const idx = text.toLowerCase().indexOf(endTag);
+        if (idx === -1) {
+          const { safe, pending } = splitForPartialTag(text, endTag);
+          if (safe) {
+            thinkParserRef.current.thinkingText += safe;
+            setThinkingText(thinkParserRef.current.thinkingText);
+          }
+          thinkParserRef.current.pending = pending;
+          setIsThinking(true);
+          return;
+        }
+
+        const thinkingPart = text.slice(0, idx);
+        if (thinkingPart) {
+          thinkParserRef.current.thinkingText += thinkingPart;
+          setThinkingText(thinkParserRef.current.thinkingText);
+        }
+        text = text.slice(idx + endTag.length);
+        thinkParserRef.current.inThinking = false;
+        setIsThinking(false);
+        continue;
+      }
+
+      const idx = text.toLowerCase().indexOf(startTag);
+      if (idx === -1) {
+        const { safe, pending } = splitForPartialTag(text, startTag);
+        if (safe) {
+          thinkParserRef.current.finalText += safe;
+          setResult(thinkParserRef.current.finalText);
+        }
+        thinkParserRef.current.pending = pending;
+        setIsThinking(false);
+        return;
+      }
+
+      const finalPart = text.slice(0, idx);
+      if (finalPart) {
+        thinkParserRef.current.finalText += finalPart;
+        setResult(thinkParserRef.current.finalText);
+      }
+      text = text.slice(idx + startTag.length);
+      thinkParserRef.current.inThinking = true;
+      setIsThinking(true);
+    }
+  };
+
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -173,7 +327,9 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
   const handleAnalyze = async () => {
     if (!file) return;
     setAnalyzing(true);
-    setResult('');
+    resetThinkParser();
+    const cost = calculateCost();
+    let didOptimisticallyDeduct = false;
     
     try {
       const token = localStorage.getItem('app_token');
@@ -202,14 +358,13 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
 
       const baseUrl = getApiBaseUrl();
       
-      const cost = calculateCost();
       if (cost > 0 && availablePoints !== undefined && availablePoints < cost) {
         promptRechargeForInsufficientBalance();
-        setAnalyzing(false);
         return;
       }
       if (cost > 0 && onDeductPoints) {
         onDeductPoints(cost);
+        didOptimisticallyDeduct = true;
       }
 
       if (mode === 'image' || mode === 'video') {
@@ -237,10 +392,10 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
               const payload = jsonData.data;
               const text = payload?.result || payload?.content || payload?.message || '';
               if (typeof text === 'string' && text) {
-                setResult(text);
+                applyThinkAwareAppend(text);
                 return;
               }
-              setResult(typeof payload === 'string' ? payload : JSON.stringify(payload ?? '', null, 2));
+              applyThinkAwareAppend(typeof payload === 'string' ? payload : JSON.stringify(payload ?? '', null, 2));
               return;
             }
 
@@ -249,10 +404,10 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
               throw new ApiError(jsonData.message || '算力不足', 4009);
             }
 
-            throw new Error(jsonData.message || '分析失败');
+            throw new Error(toUserFriendlyMessage(jsonData.message || '分析失败', jsonData.code));
           }
 
-          throw new Error(jsonData?.message || '分析失败');
+          throw new Error(toUserFriendlyMessage(jsonData?.message || '分析失败'));
         }
 
         if (!response.ok) {
@@ -267,7 +422,10 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
               promptRechargeForInsufficientBalance();
               throw new ApiError(errorData.message || '算力不足', 4009);
             }
-            errorMessage = errorData.message || errorData.error || `分析失败 (${response.status})`;
+            errorMessage = toUserFriendlyMessage(
+              errorData.message || errorData.error || `分析失败 (${response.status})`,
+              typeof errorData?.code === 'number' ? errorData.code : undefined
+            );
           } catch (e) {
             errorMessage = `分析失败 (${response.status})`;
           }
@@ -280,8 +438,85 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let resultText = '';
         let buffer = '';
+        let isErrorEvent = false;
+        let shouldStop = false;
+
+        const handleStreamPayload = (payload: string) => {
+          const trimmedPayload = payload.trim();
+          if (!trimmedPayload) return;
+          if (trimmedPayload === '[DONE]') {
+            shouldStop = true;
+            return;
+          }
+
+          if (isErrorEvent) {
+            isErrorEvent = false;
+            const errorJson = safeParseJson(trimmedPayload);
+            if (errorJson && typeof errorJson === 'object') {
+              const code = typeof (errorJson as any).code === 'number' ? (errorJson as any).code : undefined;
+              const raw = (errorJson as any).message || (errorJson as any).msg || (errorJson as any).error || trimmedPayload;
+              const rawText = typeof raw === 'string' ? raw : trimmedPayload;
+              if (code === 4009) {
+                promptRechargeForInsufficientBalance();
+                throw new ApiError(rawText || '算力不足', 4009);
+              }
+              throw new Error(toUserFriendlyMessage(rawText, code));
+            }
+            throw new Error(toUserFriendlyMessage(trimmedPayload));
+          }
+
+          if (trimmedPayload.startsWith('{')) {
+            let jsonData: any;
+            try {
+              jsonData = JSON.parse(trimmedPayload);
+            } catch {
+              applyThinkAwareAppend(payload);
+              return;
+            }
+
+            if (jsonData?.code !== undefined) {
+              if (jsonData.code === 200) {
+                const payloadData = jsonData.data;
+                const text = payloadData?.result || payloadData?.content || payloadData?.message || '';
+                if (typeof text === 'string' && text) {
+                  applyThinkAwareAppend(text);
+                  return;
+                }
+                const fallback = typeof payloadData === 'string' ? payloadData : JSON.stringify(payloadData ?? '', null, 2);
+                if (fallback) {
+                  applyThinkAwareAppend(fallback);
+                }
+                return;
+              }
+
+              if (jsonData.code === 4009) {
+                promptRechargeForInsufficientBalance();
+                throw new ApiError(jsonData.message || '算力不足', 4009);
+              }
+
+              throw new Error(toUserFriendlyMessage(jsonData.message || '分析过程中发生错误', jsonData.code));
+            }
+
+            if (jsonData?.error?.message) {
+              throw new Error(jsonData.error.message || '分析过程中发生错误');
+            }
+
+            if (jsonData.choices && jsonData.choices[0]?.delta?.content) {
+              applyThinkAwareAppend(jsonData.choices[0].delta.content);
+              return;
+            }
+
+            if (typeof jsonData.content === 'string') {
+              applyThinkAwareAppend(jsonData.content);
+              return;
+            }
+
+            return;
+          }
+
+          applyThinkAwareAppend(payload);
+        };
 
         while (true) {
           const { done, value } = await reader.read();
@@ -298,79 +533,53 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
             const trimmedLine = line.trim();
             if (!trimmedLine) continue;
 
-            if (trimmedLine.startsWith('data:')) {
-              const data = trimmedLine.substring(5).trimStart();
-              if (data.trim() === '[DONE]') break;
-
-              try {
-                if (data.startsWith('{')) {
-                  const jsonData = JSON.parse(data);
-                  if (jsonData?.code !== undefined && jsonData.code !== 200) {
-                    if (jsonData.code === 4009) {
-                      promptRechargeForInsufficientBalance();
-                      throw new ApiError(jsonData.message || '算力不足', 4009);
-                    }
-                    throw new Error(jsonData.message || '分析过程中发生错误');
-                  }
-                  if (jsonData.choices && jsonData.choices[0]?.delta?.content) {
-                    const content = jsonData.choices[0].delta.content;
-                    resultText += content;
-                    setResult(resultText);
-                    // console.log('Received chunk:', content);
-                  } else if (jsonData.content) {
-                    resultText += jsonData.content;
-                    setResult(resultText);
-                  } else if (jsonData.error) {
-                    throw new Error(jsonData.error.message || '分析过程中发生错误');
-                  }
-                } else {
-                  resultText += data;
-                  setResult(resultText);
-                }
-              } catch (e) {
-                console.warn('Failed to parse SSE data:', data, e);
-              }
-            } else if (trimmedLine.startsWith('event: error')) {
-               // Handle error event if needed, usually followed by data with error msg
+            if (trimmedLine.startsWith('event:')) {
+              const eventName = trimmedLine.substring(6).trim();
+              isErrorEvent = eventName === 'error';
+              continue;
             }
+
+            if (trimmedLine.startsWith('data:')) {
+              handleStreamPayload(trimmedLine.substring(5).trimStart());
+              if (shouldStop) break;
+              continue;
+            }
+
+            if (trimmedLine.startsWith('id:') || trimmedLine.startsWith('retry:') || trimmedLine.startsWith(':')) {
+              continue;
+            }
+
+            handleStreamPayload(trimmedLine);
+            if (shouldStop) break;
           }
+
+          if (shouldStop) break;
         }
         
         // Process remaining buffer
         if (buffer.trim()) {
            const trimmedLine = buffer.trim();
            if (trimmedLine.startsWith('data:')) {
-              const data = trimmedLine.substring(5).trimStart();
-              if (data.trim() !== '[DONE]') {
-                 try {
-                    if (data.startsWith('{')) {
-                       const jsonData = JSON.parse(data);
-                       if (jsonData?.code !== undefined && jsonData.code !== 200) {
-                         if (jsonData.code === 4009) {
-                           promptRechargeForInsufficientBalance();
-                           throw new ApiError(jsonData.message || '算力不足', 4009);
-                         }
-                         throw new Error(jsonData.message || '分析过程中发生错误');
-                       }
-                       if (jsonData.choices && jsonData.choices[0]?.delta?.content) {
-                          resultText += jsonData.choices[0].delta.content;
-                          setResult(resultText);
-                       }
-                    }
-                 } catch(e) {
-                    // ignore
-                 }
-              }
+              handleStreamPayload(trimmedLine.substring(5).trimStart());
+            } else if (!trimmedLine.startsWith('event:') && !trimmedLine.startsWith('id:') && !trimmedLine.startsWith('retry:') && !trimmedLine.startsWith(':')) {
+              handleStreamPayload(trimmedLine);
            }
+        }
+
+        if (!thinkParserRef.current.finalText.trim() && !thinkParserRef.current.thinkingText.trim()) {
+          message.warning('未返回分析结果，请重试');
         }
       }
     } catch (error: any) {
+      if (didOptimisticallyDeduct && cost > 0 && onDeductPoints) {
+        onDeductPoints(-cost);
+      }
       if (!(error instanceof ApiError && error.code === 4009)) {
-        message.error(error.message || '分析失败');
+        message.error(toUserFriendlyError(error));
       }
       console.error('分析失败:', error);
-      if (!result) {
-        setResult('');
+      if (onRefreshBalance) {
+        onRefreshBalance();
       }
     } finally {
       setAnalyzing(false);
@@ -387,14 +596,14 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
       <div className="flex justify-center mb-6">
         <div className="flex bg-[#0d1121] p-1.5 rounded-2xl border border-white/5">
           <button 
-            onClick={() => { setMode('image'); setFile(null); setRawFile(null); setResult(''); }}
+            onClick={() => { setMode('image'); setFile(null); setRawFile(null); resetThinkParser(); }}
             className={`flex items-center space-x-2 px-8 py-3 rounded-xl font-black text-sm transition-all ${mode === 'image' ? 'brand-gradient text-white shadow-lg' : 'text-gray-500 hover:text-white'}`}
           >
             <ImageIcon className="w-4 h-4" />
             <span>图片分析</span>
           </button>
           <button 
-            onClick={() => { setMode('video'); setFile(null); setRawFile(null); setResult(''); }}
+            onClick={() => { setMode('video'); setFile(null); setRawFile(null); resetThinkParser(); }}
             className={`flex items-center space-x-2 px-8 py-3 rounded-xl font-black text-sm transition-all ${mode === 'video' ? 'brand-gradient text-white shadow-lg' : 'text-gray-500 hover:text-white'}`}
           >
             <Video className="w-4 h-4" />
@@ -425,7 +634,7 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
                 </label>
               )}
               {file && (
-                 <button onClick={() => { setFile(null); setRawFile(null); }} className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full text-white hover:bg-red-500 transition-colors">
+                 <button onClick={() => { setFile(null); setRawFile(null); resetThinkParser(); }} className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full text-white hover:bg-red-500 transition-colors">
                    <X className="w-4 h-4" />
                  </button>
               )}
@@ -536,6 +745,35 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
                       </p>
                     </div>
                   </div>
+                </div>
+              )}
+              {(thinkingText || isThinking) && (
+                <div className="mb-6 border border-white/10 bg-white/5 rounded-2xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setIsThinkingCollapsed(v => !v)}
+                    className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-white/5 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-2 h-2 rounded-full ${isThinking ? 'bg-cyan-400 animate-pulse' : 'bg-white/30'}`}></div>
+                      <span className="text-xs font-black uppercase tracking-widest text-gray-300">
+                        {isThinking ? '深度思考中...' : '深度思考'}
+                      </span>
+                      {isThinkingCollapsed && (
+                        <span className="text-[10px] text-gray-400 truncate max-w-[260px]">
+                          {thinkingText.trim() ? thinkingText.trim().replace(/\s+/g, ' ').slice(-120) : '...'}
+                        </span>
+                      )}
+                    </div>
+                    <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${isThinkingCollapsed ? 'rotate-90' : '-rotate-90'}`} />
+                  </button>
+                  {!isThinkingCollapsed && (
+                    <div className="px-4 pb-4">
+                      <div className="max-h-56 overflow-y-auto custom-scrollbar rounded-xl bg-black/20 border border-white/5 p-3 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
+                        {thinkingText || (isThinking ? '...' : '')}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {result ? (

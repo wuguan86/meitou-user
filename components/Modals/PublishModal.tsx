@@ -4,7 +4,6 @@ import { X, Send, CheckSquare, Square, Image as ImageIcon, FileText } from 'luci
 import { AssetNode } from '../../types';
 import * as publishAPI from '../../api/publish';
 import { message } from 'antd';
-import { publishGenerationRecord } from '../../api/generation';
 import { SecureImage } from '../SecureImage';
 import { SecureVideo } from '../SecureVideo';
 
@@ -45,6 +44,12 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, 
       message.warning('请输入标题');
       return;
     }
+
+    if (asset.generationRecordId == null) {
+      message.warning('生成记录ID缺失，无法发布');
+      return;
+    }
+    const generationRecordId = asset.generationRecordId;
 
     setPublishing(true);
     try {
@@ -93,16 +98,8 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, 
         type: asset.type === 'image' ? 'image' : 'video',
         generationType: generationType,
         generationConfig: generationConfig,
+        generationRecordId: generationRecordId,
       });
-
-      // 标记生成记录为已发布
-      if (asset.generationRecordId) {
-          try {
-              await publishGenerationRecord(asset.generationRecordId);
-          } catch (e) {
-              console.error('标记已发布失败', e);
-          }
-      }
 
       message.success('发布成功！');
       if (onSuccess) {
@@ -184,7 +181,7 @@ const PublishModal: React.FC<PublishModalProps> = ({ asset, onClose, onSuccess, 
           <div className="pt-6 border-t border-white/5">
             <button 
               onClick={handlePublish}
-              disabled={publishing || !title.trim()}
+              disabled={publishing || !title.trim() || asset.generationRecordId == null}
               className="w-full brand-gradient py-4 rounded-2xl font-black text-lg text-white shadow-xl glow-pink hover:scale-[1.02] transition-all flex items-center justify-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed">
               <Send className="w-5 h-5" />
               <span>{publishing ? '发布中...' : '确认发布'}</span>

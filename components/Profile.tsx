@@ -28,6 +28,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const deletedIdsRef = useRef<Set<string>>(new Set());
 
   const loadRecords = useCallback(async (page: number, isLoadMore: boolean = false) => {
     if (!user.id) return;
@@ -41,11 +42,14 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
       const typeParam = activeTab === 'all' ? undefined : activeTab;
       const data = await getGenerationRecords(page, pageSize, typeParam);
       
+      // Filter out deleted records
+      const filteredRecords = data.records.filter(r => !deletedIdsRef.current.has(String(r.id)));
+      
       if (isLoadMore) {
-        setRecords(prev => [...prev, ...data.records]);
+        setRecords(prev => [...prev, ...filteredRecords]);
         setCurrentPage(page);
       } else {
-        setRecords(data.records);
+        setRecords(filteredRecords);
         setCurrentPage(1);
       }
       
@@ -61,6 +65,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
   }, [user.id, activeTab, pageSize]);
 
   useEffect(() => {
+    deletedIdsRef.current.clear(); // Clear blacklist on refresh/tab change
     setHasMore(true);
     setRecords([]);
     loadRecords(1, false);
@@ -138,17 +143,27 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
 
   const handleDelete = async (e: React.MouseEvent, recordId: number) => {
     e.stopPropagation();
+    if (!recordId) return;
+
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除这个作品吗？',
       onOk: async () => {
         try {
+          // 立即添加到黑名单
+          const strId = String(recordId);
+          deletedIdsRef.current.add(strId);
+          
           await deleteGenerationRecord(recordId);
-          setRecords(prev => prev.filter(r => r.id !== recordId));
-          setTotal(prev => prev - 1);
+          
+          // 使用 String 转换确保类型匹配
+          setRecords(prev => prev.filter(r => String(r.id) !== strId));
+          setTotal(prev => Math.max(0, prev - 1));
           message.success('删除成功');
         } catch (error) {
           console.error('Failed to delete record', error);
+          // 如果失败，可以考虑从黑名单移除，但通常删除失败可能是网络问题或已删除
+          // 这里我们保持在黑名单中以防UI闪烁，除非明确需要回滚
           message.error('删除失败');
         }
       }
@@ -430,14 +445,25 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                    {record.status !== 'failed' && String(record.isPublish) !== '1' && (
-                      <button 
+                    {record.status !== 'failed' && (
+                      String(record.isPublish) === '1' ? (
+                        <button
+                          disabled
+                          className="px-3 py-2 bg-white/10 rounded-full text-white/50 cursor-not-allowed transition-colors flex items-center gap-1"
+                          title="已发布"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span className="text-xs font-medium">已发布</span>
+                        </button>
+                      ) : (
+                        <button
                           onClick={(e) => handlePublish(e, record)}
                           className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
                           title="发布到广场"
-                      >
+                        >
                           <Send className="w-4 h-4" />
-                      </button>
+                        </button>
+                      )
                     )}
                   </div>
                   

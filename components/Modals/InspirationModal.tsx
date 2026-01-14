@@ -19,6 +19,48 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
   const [showOriginal, setShowOriginal] = useState(false);
   const [originalPos, setOriginalPos] = useState({ x: 0, y: 0 });
 
+  const extractOriginalImageUrl = (generationType?: string, generationConfig?: any, fallbackUrl?: string) => {
+    let originalImageUrl = fallbackUrl;
+    if (!generationConfig) return originalImageUrl;
+
+    const config =
+      typeof generationConfig === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(generationConfig);
+            } catch {
+              return undefined;
+            }
+          })()
+        : generationConfig;
+
+    if (!config) return originalImageUrl;
+
+    if (generationType === 'img2img') {
+      originalImageUrl =
+        config.referenceImages?.[0] ||
+        config.init_images?.[0] ||
+        config.images?.[0] ||
+        config.urls?.[0] ||
+        config.image_url ||
+        config.image ||
+        originalImageUrl;
+    } else if (generationType === 'img2video') {
+      originalImageUrl =
+        config.referenceImage ||
+        config.image_url ||
+        config.image ||
+        config.referenceImages?.[0] ||
+        originalImageUrl;
+    }
+
+    if (!originalImageUrl && config.originalImageUrl) {
+      originalImageUrl = config.originalImageUrl;
+    }
+
+    return originalImageUrl;
+  };
+
   const handleOriginalEnter = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     // 显示在缩略图左侧，垂直居中
@@ -35,9 +77,16 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
           const detail = await publishAPI.getPublishedContentDetail(work.id);
           // 解析generationConfig
           let generationConfig: any = undefined;
+          let originalImageUrl = work.originalImageUrl;
+
           if (detail.generationConfig) {
             try {
-              generationConfig = JSON.parse(detail.generationConfig);
+              const config = typeof detail.generationConfig === 'string' 
+                ? JSON.parse(detail.generationConfig) 
+                : detail.generationConfig;
+              
+              generationConfig = config;
+              originalImageUrl = extractOriginalImageUrl(detail.generationType, config, originalImageUrl);
             } catch (e) {
               console.error('解析生成配置失败:', e);
             }
@@ -50,13 +99,22 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
             generationConfig: generationConfig,
             type: detail.type,
             contentUrl: detail.contentUrl,
+            originalImageUrl: originalImageUrl,
           });
         } catch (error) {
           console.error('获取发布内容详情失败:', error);
           setWorkData(work);
         }
       } else {
-        setWorkData(work);
+        if (!work) {
+          setWorkData(work);
+          return;
+        }
+        const originalImageUrl = extractOriginalImageUrl(work.generationType, work.generationConfig, work.originalImageUrl);
+        setWorkData({
+          ...work,
+          originalImageUrl,
+        });
       }
     };
     
@@ -198,7 +256,6 @@ const InspirationModal: React.FC<InspirationModalProps> = ({ work, onClose, onNa
                 <SecureImage src={workData.avatar} className="w-12 h-12 rounded-full border-2 border-white/10" alt={workData.user} />
                 <div>
                   <p className="font-bold text-white text-lg">{workData.user}</p>
-                  <p className="text-xs text-gray-500 font-mono">Creator ID: {workData.id}</p>
                 </div>
               </div>
             </div>

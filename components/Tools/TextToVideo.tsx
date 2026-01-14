@@ -2,9 +2,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { message, Progress } from 'antd';
 import { Video, Sparkles, ChevronDown, Zap, ChevronUp, Wand2, Gem } from 'lucide-react';
-import { AssetNode, VideoGenerationConfig } from '../../types';
+import { AssetNode, VideoGenerationConfig, PageType } from '../../types';
 // fix: Corrected import path casing from 'Modals' to 'modals'.
 import AssetPickerModal from '../Modals/AssetPickerModal';
+import AssetDetailModal from '../Modals/AssetDetailModal';
+import PublishModal from '../Modals/PublishModal';
 import { SecureVideo } from '../SecureVideo';
 import * as generationAPI from '../../api/generation';
 import { promptRechargeForInsufficientBalance } from '../../api/index';
@@ -14,6 +16,7 @@ interface TextToVideoProps {
   onDeductPoints?: (points: number) => void;
   availablePoints?: number;
   onOpenRecharge?: () => void;
+  onNavigate?: (page: PageType) => void;
 }
 
 // 模型选项接口
@@ -26,10 +29,12 @@ interface ModelOption {
   defaultCost?: number;
 }
 
-const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints, availablePoints, onOpenRecharge }) => {
+const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints, availablePoints, onOpenRecharge, onNavigate }) => {
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
   const [videos, setVideos] = useState<AssetNode[]>([]);
+  const [selectedVideo, setSelectedVideo] = useState<AssetNode | null>(null);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [model, setModel] = useState('');
   const [duration, setDuration] = useState<string|number>(5);
   const [resolution, setResolution] = useState('Auto');
@@ -262,15 +267,15 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
       // 调用文生视频API
       let response = await generationAPI.textToVideo(request);
 
-      // 如果返回了任务ID且状态为处理中，开始轮询
-      if (response.taskId && (response.status === 'processing' || response.status === 'running')) {
-         const taskId = response.taskId;
+      // 如果返回了记录ID且状态为处理中，开始轮询
+      if (response.generationRecordId && (response.status === 'processing' || response.status === 'running')) {
+         const recordId = response.generationRecordId;
          let retries = 0;
          while (true) {
              // 前端每隔 2-3 秒问一次后端结果
              await new Promise(resolve => setTimeout(resolve, 2500));
              
-             const statusRes = await generationAPI.getTaskStatus<generationAPI.VideoGenerationResponse>(taskId); // VideoGenerationResponse compatible? Yes
+             const statusRes = await generationAPI.getTaskStatus<generationAPI.VideoGenerationResponse>(recordId);
              
              // 一旦后端轮询结果返回 status: succeeded 或者 progress: 100
              // Note: VideoGenerationResponse usually has status. Progress might not be there but status 'success' is key.
@@ -320,6 +325,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
         prompt: prompt,
         generationType: 'txt2video',
         generationConfig: generationConfig,
+        generationRecordId: response.generationRecordId,
       };
       
       setVideos([newVideo]);
@@ -494,8 +500,17 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
 
         <div className="lg:col-span-8 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[3rem] text-gray-700 bg-white/[0.01] min-h-[500px]">
           {!generating && videos.length > 0 ? (
-            <div className="w-full h-full flex items-center justify-center">
+            <div className="w-full h-full flex items-center justify-center relative group">
               <SecureVideo src={videos[0].url} controls playsInline preload="metadata" className="max-w-full max-h-full" />
+              <div 
+                className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-all cursor-pointer z-10"
+                onClick={() => setSelectedVideo(videos[0])}
+              >
+                 <div className="bg-black/60 backdrop-blur-md text-white px-6 py-3 rounded-full font-bold transform translate-y-4 group-hover:translate-y-0 transition-all flex items-center space-x-2 border border-white/10 hover:bg-black/80">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span>查看详情与操作</span>
+                 </div>
+              </div>
             </div>
           ) : (
             <>
@@ -526,6 +541,31 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
           )}
         </div>
       </div>
+
+      {selectedVideo && (
+        <AssetDetailModal
+          asset={selectedVideo}
+          onClose={() => setSelectedVideo(null)}
+          onPublish={() => setIsPublishModalOpen(true)}
+          onNavigate={onNavigate}
+          showActions={true}
+        />
+      )}
+      
+      {selectedVideo && isPublishModalOpen && (
+        <PublishModal
+          asset={selectedVideo}
+          onClose={() => setIsPublishModalOpen(false)}
+          onSuccess={() => {
+             setIsPublishModalOpen(false);
+             // update asset status if needed
+             const newVideo = { ...selectedVideo, isPublish: true };
+             setSelectedVideo(newVideo);
+             setVideos(prev => prev.map(v => v.id === newVideo.id ? newVideo : v));
+          }}
+          userId={parseInt(localStorage.getItem('app_user_id') || '0', 10)}
+        />
+      )}
     </div>
   );
 };

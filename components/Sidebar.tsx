@@ -73,16 +73,16 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     const loadData = async () => {
       console.log('Sidebar: 开始加载数据...');
-      try {
-        // TODO: 根据用户信息获取站点分类，目前使用默认值 'medical' (siteId=1)
-        const siteCategory = 'medical';
-        const menus = await getVisibleMenus(siteCategory);
-        setMenuConfigs(menus);
+      let currentSiteId = 1; // 默认为1
 
+      try {
         // 加载站点信息
         try {
           const site = await getCurrentSite();
           if (site) {
+            if (site.id) {
+              currentSiteId = site.id;
+            }
             if (site.manual) {
               setManualUrl(site.manual);
             }
@@ -100,8 +100,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           console.error('Sidebar: 获取站点信息失败:', err);
         }
 
+        // TODO: 根据用户信息获取站点分类，目前使用默认值 'medical' (siteId=1)
+        const siteCategory = 'medical';
+        const menus = await getVisibleMenus(siteCategory);
+        setMenuConfigs(menus);
+
         // 加载客服配置
-        const config = await customerServiceAPI.getConfig(1);
+        const config = await customerServiceAPI.getConfig(currentSiteId);
         if (config) {
           setCsConfig(config);
         }

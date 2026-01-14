@@ -123,7 +123,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
 
     // Call backend API to save character
     if (!currentPid) {
-       message.error('无法保存：未找到生成记录ID');
+       message.error('无法保存：未找到外部内容ID');
        return;
     }
 
@@ -214,7 +214,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
 
   const handleConfirmAddCharacterFromVideo = async () => {
     if (!selectedCharacterVideoRecord?.pid) {
-      message.error('无法添加：未找到生成记录ID');
+      message.error('无法添加：未找到外部内容ID');
       return;
     }
 
@@ -337,7 +337,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const [resolutionOpen, setResolutionOpen] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]); // 模型列表
   const [loadingModels, setLoadingModels] = useState(true); // 加载模型列表状态
-  const [optimizing, setOptimizing] = useState(false);
+  const [optimizingStep, setOptimizingStep] = useState<'step1' | 'step2' | null>(null);
   const [progress, setProgress] = useState(0);
   const [previewVideo, setPreviewVideo] = useState<AssetNode | null>(null);
   const [isContinuationVideoPickerOpen, setIsContinuationVideoPickerOpen] = useState(false);
@@ -378,7 +378,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     : [1];
 
   const handleOptimizePrompt = (targetStep: 'step1' | 'step2' = 'step2') => {
-    if (optimizing) return;
+    if (optimizingStep) return;
 
     const step2PromptState = mainMode === 'professional'
       ? (professionalMode === 'continuation'
@@ -411,7 +411,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
     };
 
     const originalPrompt = currentPrompt;
-    setOptimizing(true);
+    setOptimizingStep(targetStep);
     setTargetPrompt('');
     
     let fullResponse = '';
@@ -428,7 +428,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         console.error(err);
         message.error('优化提示词失败');
         setTargetPrompt(originalPrompt);
-        setOptimizing(false);
+        setOptimizingStep(null);
       },
       () => {
         const trimmed = fullResponse.trim();
@@ -449,7 +449,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                 setTargetPrompt(trimmed);
             }
         }
-        setOptimizing(false);
+        setOptimizingStep(null);
       },
       {
         systemPrompt: systemPromptByScene[optimizeScene],
@@ -911,21 +911,28 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
       // 调用图生视频API
       let response = await generationAPI.imageToVideo(request);
       
-      // 如果返回了任务ID且状态为处理中，开始轮询
-      if (response.taskId && (response.status === 'processing' || response.status === 'running')) {
-         const taskId = response.taskId;
+      // 如果返回了记录ID且状态为处理中，开始轮询
+      if (response.generationRecordId && (response.status === 'processing' || response.status === 'running')) {
+         const recordId = response.generationRecordId;
          let retries = 0;
          while (true) {
              // 前端每隔 2-3 秒问一次后端结果
              await new Promise(resolve => setTimeout(resolve, 2500));
              
-             const statusRes = await generationAPI.getTaskStatus<generationAPI.VideoGenerationResponse>(taskId);
+             const statusRes = await generationAPI.getTaskStatus<generationAPI.VideoGenerationResponse>(recordId);
              
              // 一旦后端轮询结果返回 status: succeeded 或者 progress: 100
              if (statusRes.status === 'success' || statusRes.status === 'succeeded' || statusRes.status === 'completed' || statusRes.progress === 100) {
                  // 瞬间拉满：立即终止“演戏”动画，直接把进度条瞬移到 100%
                  if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-                 response = statusRes;
+                 response = {
+                   ...response,
+                   status: 'success',
+                   errorMessage: statusRes.errorMessage,
+                   progress: statusRes.progress,
+                   videoUrl: statusRes.videoUrl || response.videoUrl,
+                   pid: statusRes.pid,
+                 };
                  setProgress(100);
                  break;
              }
@@ -974,6 +981,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         originalImageUrl: file || undefined,
         generationType: 'img2video',
         generationConfig: generationConfig,
+        generationRecordId: response.generationRecordId,
       };
       
       setVideos([newVideo]);
@@ -1174,11 +1182,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         </label>
                                         <button 
                                             onClick={() => handleOptimizePrompt('step1')}
-                                            disabled={optimizing}
-                                            className={`text-xs flex items-center space-x-1 ${optimizing ? 'text-gray-500 cursor-wait' : 'text-[#2cc2f5] hover:text-[#2cc2f5]/80'}`}
+                                            disabled={!!optimizingStep}
+                                            className={`text-xs flex items-center space-x-1 ${!!optimizingStep ? 'text-gray-500 cursor-wait' : 'text-[#2cc2f5] hover:text-[#2cc2f5]/80'}`}
                                         >
                                             <Sparkles className="w-3 h-3" />
-                                            <span>{optimizing ? '优化中...' : 'AI优化'}</span>
+                                            <span>{optimizingStep === 'step1' ? '优化中...' : 'AI优化'}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -1350,11 +1358,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         </button>
                                         <button 
                                             onClick={() => handleOptimizePrompt('step2')}
-                                            disabled={optimizing}
-                                            className={`text-xs flex items-center space-x-1 ${optimizing ? 'text-gray-500 cursor-wait' : 'text-[#2cc2f5] hover:text-[#2cc2f5]/80'}`}
+                                            disabled={!!optimizingStep}
+                                            className={`text-xs flex items-center space-x-1 ${!!optimizingStep ? 'text-gray-500 cursor-wait' : 'text-[#2cc2f5] hover:text-[#2cc2f5]/80'}`}
                                         >
                                             <Sparkles className="w-3 h-3" />
-                                            <span>{optimizing ? '优化中...' : 'AI优化'}</span>
+                                            <span>{optimizingStep === 'step2' ? '优化中...' : 'AI优化'}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -1450,7 +1458,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
 
                      <button 
                        onClick={() => handleGenerate(2)}
-                       disabled={generating}
+                       disabled={generating || !!optimizingStep}
                        className="w-full brand-gradient py-4 rounded-[1.5rem] font-black text-lg shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em] disabled:opacity-30"
                      >
                        <Sparkles className="w-5 h-5" />
@@ -1719,11 +1727,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                           <div className="absolute bottom-2 left-2 right-2 flex justify-end items-center">
                             <button 
                                 onClick={() => handleOptimizePrompt('step2')}
-                                disabled={optimizing}
-                                className={`text-xs flex items-center space-x-1 ${optimizing ? 'text-gray-500 cursor-wait' : 'text-[#2cc2f5] hover:text-[#2cc2f5]/80'}`}
+                                disabled={!!optimizingStep}
+                                className={`text-xs flex items-center space-x-1 ${!!optimizingStep ? 'text-gray-500 cursor-wait' : 'text-[#2cc2f5] hover:text-[#2cc2f5]/80'}`}
                             >
                                 <Sparkles className="w-3 h-3" />
-                                <span>{optimizing ? '优化中...' : 'AI优化'}</span>
+                                <span>{optimizingStep === 'step2' ? '优化中...' : 'AI优化'}</span>
                             </button>
                           </div>
                         </div>
@@ -1789,7 +1797,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
 
                      <button 
                        onClick={() => handleGenerate()}
-                       disabled={generating}
+                       disabled={generating || !!optimizingStep}
                        className="w-full brand-gradient py-4 rounded-[1.5rem] font-black text-lg shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em] disabled:opacity-30"
                      >
                        <Sparkles className="w-5 h-5" />
@@ -1812,11 +1820,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                     <div className="flex justify-end mt-2 px-1">
                         <button 
                         onClick={() => handleOptimizePrompt('step2')}
-                        disabled={optimizing}
-                        className={`flex items-center space-x-2 text-[10px] ${optimizing ? 'text-gray-500 cursor-wait' : 'text-cyan-400 hover:text-cyan-300'} font-black uppercase tracking-widest group`}
+                        disabled={!!optimizingStep}
+                        className={`flex items-center space-x-2 text-[10px] ${!!optimizingStep ? 'text-gray-500 cursor-wait' : 'text-cyan-400 hover:text-cyan-300'} font-black uppercase tracking-widest group`}
                         >
-                        <Wand2 className={`w-3 h-3 ${optimizing ? 'animate-pulse' : 'group-hover:rotate-45'} transition-transform`} />
-                        <span>{optimizing ? '优化中...' : 'AI帮助优化提示词'}</span>
+                        <Wand2 className={`w-3 h-3 ${optimizingStep === 'step2' ? 'animate-pulse' : 'group-hover:rotate-45'} transition-transform`} />
+                        <span>{optimizingStep === 'step2' ? '优化中...' : 'AI帮助优化提示词'}</span>
                         </button>
                     </div>
                 </div>
@@ -1938,7 +1946,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
 
             <button 
               onClick={handleGenerate}
-              disabled={generating || uploading}
+              disabled={generating || uploading || !!optimizingStep}
               className="w-full brand-gradient py-5 rounded-[1.5rem] font-black text-xl shadow-2xl glow-cyan hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 tracking-[0.2em] disabled:opacity-30"
             >
               <Sparkles className="w-5 h-5" />
@@ -1955,7 +1963,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
           {!generating && videos.length > 0 && videos[0].url ? (
             <div 
               className="w-full h-full flex items-center justify-center cursor-pointer group relative"
-              onClick={() => setPreviewVideo(videos[0])}
+              onClick={() => onSelectAsset(videos[0])}
             >
               <SecureVideo 
                 src={videos[0].url} 
@@ -2085,17 +2093,19 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                        <button
                            type="button"
                            onClick={(e) => {
-                             e.stopPropagation();
-                             setPreviewVideo({
-                               id: char.id,
-                               name: char.name,
-                               type: 'video',
-                               url: char.url,
-                               thumbnail: char.coverUrl,
-                               createdAt: Date.now(),
-                               prompt: char.name
-                             });
-                           }}
+                            e.stopPropagation();
+                            onSelectAsset({
+                              id: char.id,
+                              name: char.name,
+                              type: 'video',
+                              url: char.url,
+                              thumbnail: char.coverUrl,
+                              createdAt: Date.now(),
+                              prompt: char.name,
+                              generationType: 'img2video',
+                              hideActions: true
+                            });
+                          }}
                            className="p-2 bg-white/10 rounded-full text-white hover:bg-[#2cc2f5] hover:text-black transition-colors"
                            title="预览视频"
                          >

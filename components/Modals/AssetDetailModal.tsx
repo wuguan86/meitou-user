@@ -10,7 +10,8 @@ import {
   getImageToImageModels, 
   getTextToVideoModels, 
   getImageToVideoModels,
-  PlatformModelResponse 
+  PlatformModelResponse,
+  getGenerationRecord
 } from '../../api/generation';
 
 interface AssetDetailModalProps {
@@ -34,6 +35,26 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
   }, [asset.generationParams]);
 
   const [modelName, setModelName] = useState<string | null>(null);
+  const [isPublished, setIsPublished] = useState(false);
+
+  useEffect(() => {
+    // Initialize from prop
+    setIsPublished(asset.isPublish === true || String(asset.isPublish) === '1');
+
+    const fetchStatus = async () => {
+      if (asset.generationRecordId) {
+        try {
+          const record = await getGenerationRecord(asset.generationRecordId);
+          // Check if isPublish is '1' or true
+          const published = String(record.isPublish) === '1';
+          setIsPublished(published);
+        } catch (e) {
+          // console.error('Failed to fetch record status', e);
+        }
+      }
+    };
+    fetchStatus();
+  }, [asset]);
 
   useEffect(() => {
     if (!asset.generationType || !params?.model) return;
@@ -224,6 +245,7 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
           )}
         </div>
 
+        {!asset.hideActions && (
         <div className="p-6 bg-[#151929] border-t border-white/5 flex items-center justify-between shrink-0">
           {showActions ? (
             <>
@@ -244,7 +266,7 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
                 )}
               </div>
               {asset.status !== 'failed' && (
-                asset.isPublish ? (
+                isPublished ? (
                   <button 
                     disabled
                     className="bg-white/10 px-8 py-3 rounded-xl font-black text-sm text-gray-400 cursor-not-allowed flex items-center space-x-2 border border-white/5">
@@ -275,6 +297,7 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

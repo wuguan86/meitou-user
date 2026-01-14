@@ -46,6 +46,34 @@ const App: React.FC = () => {
     password: '••••••••'
   });
 
+  const fetchUserData = async () => {
+    const token = localStorage.getItem('app_token');
+    if (token) {
+      try {
+        const userData = await getCurrentUser();
+        setUser(prev => ({
+          ...prev,
+          id: userData.userId.toString(),
+          name: userData.username || '创作官',
+          points: userData.balance || 0,
+          phone: userData.phone,
+          email: userData.email,
+          category: userData.category,
+          isLoggedIn: true,
+          createdAt: userData.createdAt,
+          avatarUrl: userData.avatarUrl,
+          company: userData.company,
+          wechat: userData.wechat,
+        }));
+      } catch (error) {
+        console.error('Failed to restore session:', error);
+        localStorage.removeItem('app_token');
+        localStorage.removeItem('app_user_id');
+      }
+    }
+    setIsLoading(false);
+  };
+
   // Check for existing session on mount
   useEffect(() => {
     const fetchSiteConfig = async () => {
@@ -69,36 +97,8 @@ const App: React.FC = () => {
       }
     };
     fetchSiteConfig();
-
-    const checkLoginStatus = async () => {
-      const token = localStorage.getItem('app_token');
-      if (token) {
-        try {
-          const userData = await getCurrentUser();
-          setUser(prev => ({
-            ...prev,
-            id: userData.userId.toString(),
-            name: userData.username || '创作官',
-            points: userData.balance || 0,
-            phone: userData.phone,
-            email: userData.email,
-            category: userData.category,
-            isLoggedIn: true,
-            createdAt: userData.createdAt,
-            avatarUrl: userData.avatarUrl,
-            company: userData.company,
-            wechat: userData.wechat,
-          }));
-        } catch (error) {
-          console.error('Failed to restore session:', error);
-          localStorage.removeItem('app_token');
-          localStorage.removeItem('app_user_id');
-        }
-      }
-      setIsLoading(false);
-    };
     
-    checkLoginStatus();
+    fetchUserData();
   }, []);
 
   useEffect(() => {
@@ -143,9 +143,9 @@ const App: React.FC = () => {
     switch (currentPage) {
       case 'home': return <Home onNavigate={setCurrentPage} onSelectWork={setSelectedWork} userId={user.id ? parseInt(user.id) : undefined} siteConfig={siteConfig} />;
       case 'assets': return <Assets onSelectAsset={setSelectedAsset} />;
-      case 'image-analysis': return <ImageAnalysis onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'image-analysis': return <ImageAnalysis onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} onRefreshBalance={fetchUserData} />;
       case 'text-to-image': return <TextToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
-      case 'text-to-video': return <TextToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'text-to-video': return <TextToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} onNavigate={setCurrentPage} />;
       case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
       case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
       case 'voice-clone': return <VoiceClone availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;

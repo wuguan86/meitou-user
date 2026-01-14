@@ -30,7 +30,9 @@ export interface ImageToImageRequest {
 // 图片生成响应接口
 export interface ImageGenerationResponse {
   imageUrls: string[]; // 生成的图片URL列表
-  taskId?: string; // 任务ID（如果API是异步的）
+  generationRecordId?: number; // GenerationRecord.id（用于轮询查询）
+  taskId?: string; // 外部任务ID（第三方返回）
+  pid?: string; // 外部生成内容ID（第三方返回，可能为空）
   status: string; // 状态：success-成功，processing-处理中，failed-失败
   errorMessage?: string; // 错误消息
   progress?: number; // 进度（0-100）
@@ -38,11 +40,11 @@ export interface ImageGenerationResponse {
 
 /**
  * 查询任务状态
- * @param taskId 任务ID
+ * @param recordId GenerationRecord.id
  * @returns 任务状态响应
  */
-export const getTaskStatus = async <T = ImageGenerationResponse>(taskId: string): Promise<T> => {
-  return await get<T>(`/app/generation/task/${taskId}`);
+export const getTaskStatus = async <T = ImageGenerationResponse>(recordId: string | number): Promise<T> => {
+  return await get<T>(`/app/generation/task/${recordId}`);
 };
 
 /**
@@ -136,11 +138,12 @@ export interface ImageToVideoRequest {
 // 视频生成响应接口
 export interface VideoGenerationResponse {
   videoUrl: string; // 生成的视频URL
-  taskId?: string; // 任务ID（如果API是异步的）
+  generationRecordId?: number; // GenerationRecord.id（用于轮询查询）
+  taskId?: string; // 外部任务ID（第三方返回）
   status: string; // 状态：success-成功，processing-处理中，failed-失败
   errorMessage?: string; // 错误消息
   progress?: number; // 进度（0-100）
-  pid?: string; // 外部任务ID
+  pid?: string; // 外部生成内容ID（第三方返回，可能为空）
   failureReason?: string; // 失败原因
 }
 
@@ -239,7 +242,8 @@ export interface GenerationRecord {
   cost: number;
   createdAt: string;
   isPublish?: string; // 0-未发布，1-已发布
-  pid?: string;
+  taskId?: string; // 外部任务ID（第三方返回）
+  pid?: string; // 外部生成内容ID（第三方返回，可能为空）
   failureReason?: string;
 }
 
@@ -269,6 +273,15 @@ export const getGenerationRecords = async (page: number, size: number, type?: st
 };
 
 /**
+ * 获取单个生成记录详情
+ * @param id 记录ID
+ * @returns 记录详情
+ */
+export const getGenerationRecord = async (id: number): Promise<GenerationRecord> => {
+    return await get<GenerationRecord>(`/app/generation/${id}`);
+};
+
+/**
  * 删除生成记录
  * @param id 记录ID
  */
@@ -281,7 +294,12 @@ export const deleteGenerationRecord = async (id: number): Promise<void> => {
  * @param id 记录ID
  */
 export const publishGenerationRecord = async (id: number): Promise<void> => {
-    return await post<void>(`/app/generation/${id}/publish`);
+    const storedUserId = localStorage.getItem('app_user_id');
+    const headers: HeadersInit = {};
+    if (storedUserId) {
+        headers['X-User-Id'] = storedUserId;
+    }
+    return await post<void>(`/app/generation/${id}/publish`, undefined, { headers });
 };
 
 /**

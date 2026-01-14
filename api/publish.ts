@@ -44,6 +44,7 @@ export interface PublishContentRequest {
   type: 'image' | 'video';
   generationType: 'txt2img' | 'img2img' | 'txt2video' | 'img2video';
   generationConfig?: string; // JSON字符串
+  generationRecordId: number;
 }
 
 // 点赞状态响应接口
@@ -62,9 +63,84 @@ export const publishContent = async (
   userId: number,
   request: PublishContentRequest
 ): Promise<PublishedContent> => {
-  return post<PublishedContent>('/app/published-contents', request, {
+  const sanitizedRequest = sanitizePublishRequest(request);
+  return post<PublishedContent>('/app/published-contents', sanitizedRequest, {
     headers: { 'X-User-Id': userId.toString() }
   });
+};
+
+const signatureParamKeys = new Set(
+  [
+    'ossaccesskeyid',
+    'signature',
+    'expires',
+    'x-oss-signature',
+    'x-oss-date',
+    'x-oss-expires',
+    'x-oss-credential',
+    'x-oss-security-token',
+    'security-token',
+    'x-oss-signature-version',
+    'x-oss-signature-nonce',
+  ].map((k) => k.toLowerCase())
+);
+
+const stripSignatureParamsFromUrl = (input?: string) => {
+  if (!input) return input;
+  if (!/^https?:\/\//i.test(input)) return input;
+  if (!/[?&](OSSAccessKeyId|Signature|Expires|x-oss-signature|x-oss-date|x-oss-expires|x-oss-credential|x-oss-security-token)=/i.test(input)) {
+    return input;
+  }
+
+  try {
+    const url = new URL(input);
+    const next = new URL(url.toString());
+    let changed = false;
+    for (const [key] of Array.from(next.searchParams.entries())) {
+      if (signatureParamKeys.has(key.toLowerCase())) {
+        next.searchParams.delete(key);
+        changed = true;
+      }
+    }
+    if (!changed) return input;
+    return next.toString();
+  } catch {
+    const idx = input.indexOf('?');
+    return idx >= 0 ? input.slice(0, idx) : input;
+  }
+};
+
+const sanitizeAnyUrls = (value: any): any => {
+  if (typeof value === 'string') return stripSignatureParamsFromUrl(value);
+  if (Array.isArray(value)) return value.map(sanitizeAnyUrls);
+  if (value && typeof value === 'object') {
+    const result: Record<string, any> = {};
+    Object.keys(value).forEach((k) => {
+      result[k] = sanitizeAnyUrls(value[k]);
+    });
+    return result;
+  }
+  return value;
+};
+
+const sanitizeGenerationConfig = (generationConfig?: string) => {
+  if (!generationConfig) return generationConfig;
+  try {
+    const parsed = JSON.parse(generationConfig);
+    const sanitized = sanitizeAnyUrls(parsed);
+    return JSON.stringify(sanitized);
+  } catch {
+    return generationConfig;
+  }
+};
+
+const sanitizePublishRequest = (request: PublishContentRequest): PublishContentRequest => {
+  return {
+    ...request,
+    contentUrl: stripSignatureParamsFromUrl(request.contentUrl) || request.contentUrl,
+    thumbnail: stripSignatureParamsFromUrl(request.thumbnail) || request.thumbnail,
+    generationConfig: sanitizeGenerationConfig(request.generationConfig),
+  };
 };
 
 /**
