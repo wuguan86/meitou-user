@@ -2,7 +2,33 @@ import { useState, useEffect } from 'react';
 import { storageApi } from '../api/storage';
 
 const urlCache = new Map<string, { url: string; expiry: number }>();
+const inflightCache = new Map<string, Promise<string>>();
 const CACHE_DURATION = 50 * 60 * 1000; // 50 minutes (slightly less than 1 hour server expiry)
+const MAX_CONCURRENT_SIGNING = 10;
+let activeSigningCount = 0;
+const signingQueue: Array<() => void> = [];
+
+const scheduleSigning = <T,>(task: () => Promise<T>) => {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      activeSigningCount += 1;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeSigningCount -= 1;
+          const next = signingQueue.shift();
+          next?.();
+        });
+    };
+
+    if (activeSigningCount < MAX_CONCURRENT_SIGNING) {
+      run();
+      return;
+    }
+
+    signingQueue.push(run);
+  });
+};
 
 const isInlineUrl = (url?: string) => {
   if (!url) return false;
@@ -25,7 +51,11 @@ const getHostname = (url: string) => {
 const isOssLikeUrl = (url: string) => {
   if (!isHttpUrl(url)) return false;
   const host = getHostname(url);
-  return host.includes('.aliyuncs.com') && host.includes('oss-');
+  return (
+    (host.includes('.aliyuncs.com') && host.includes('oss-')) ||
+    host.includes('.myqcloud.com') ||
+    host.includes('cos.')
+  );
 };
 
 const isLikelyStorageObjectUrl = (url: string) => {
@@ -76,7 +106,9 @@ const isSignedUrlExpired = (url: string) => {
 };
 
 const isAlreadySignedUrl = (url: string) =>
-  /[?&](OSSAccessKeyId|Signature|Expires|x-oss-signature)=/i.test(url);
+  /[?&](OSSAccessKeyId|Signature|Expires|x-oss-signature|q-signature|q-sign-time|sign|X-Amz-Signature)=/i.test(
+    url
+  );
 
 export const needsSignedUrl = (url?: string) => {
   if (!url) return false;
@@ -85,6 +117,54 @@ export const needsSignedUrl = (url?: string) => {
   if (isAlreadySignedUrl(url)) return isSignedUrlExpired(url);
   if (isHttpUrl(url)) return isOssLikeUrl(url) || isLikelyStorageObjectUrl(url);
   return true;
+};
+
+const getSignedUrlFromCache = (originalUrl: string) => {
+  const cached = urlCache.get(originalUrl);
+  if (!cached) return undefined;
+  if (cached.expiry <= Date.now()) return undefined;
+  return cached.url;
+};
+
+const fetchAndCacheSignedUrl = async (originalUrl: string) => {
+  const cached = getSignedUrlFromCache(originalUrl);
+  if (cached) return cached;
+
+  const inflight = inflightCache.get(originalUrl);
+  if (inflight) return inflight;
+
+  const promise = scheduleSigning(() => storageApi.getFileUrl(originalUrl))
+    .then((url) => {
+      urlCache.set(originalUrl, { url, expiry: Date.now() + CACHE_DURATION });
+      return url;
+    })
+    .finally(() => {
+      inflightCache.delete(originalUrl);
+    });
+
+  inflightCache.set(originalUrl, promise);
+  return promise;
+};
+
+export const prefetchSignedUrls = async (urls: Array<string | undefined | null>) => {
+  const unique = new Set<string>();
+  for (const u of urls) {
+    if (!u) continue;
+    if (!needsSignedUrl(u)) continue;
+    if (isInlineUrl(u)) continue;
+    if (getSignedUrlFromCache(u)) continue;
+    unique.add(u);
+  }
+
+  await Promise.all(
+    Array.from(unique).map(async (u) => {
+      try {
+        await fetchAndCacheSignedUrl(u);
+      } catch {
+        return;
+      }
+    })
+  );
 };
 
 export const useSignedUrl = (originalUrl?: string) => {
@@ -119,9 +199,9 @@ export const useSignedUrl = (originalUrl?: string) => {
     setLoading(true);
 
     // Check cache
-    const cached = urlCache.get(originalUrl);
-    if (cached && cached.expiry > Date.now()) {
-      setSignedUrl(cached.url);
+    const cached = getSignedUrlFromCache(originalUrl);
+    if (cached) {
+      setSignedUrl(cached);
       setLoading(false);
       return;
     }
@@ -129,11 +209,9 @@ export const useSignedUrl = (originalUrl?: string) => {
     let isMounted = true;
     const fetchSignedUrl = async () => {
       try {
-        const url = await storageApi.getFileUrl(originalUrl);
+        const url = await fetchAndCacheSignedUrl(originalUrl);
         if (isMounted) {
           setSignedUrl(url);
-          // Update cache
-          urlCache.set(originalUrl, { url, expiry: Date.now() + CACHE_DURATION });
         }
       } catch (error) {
         console.error('Failed to get signed url', error);

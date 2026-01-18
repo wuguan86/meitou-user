@@ -7,7 +7,7 @@ import { getActiveAds, MarketingAd } from '../api/marketing';
 import * as publishAPI from '../api/publish';
 import RichTextModal from './Modals/RichTextModal';
 import { SecureImage } from './SecureImage';
-import { SecureVideo } from './SecureVideo';
+import { prefetchSignedUrls } from '../hooks/useSignedUrl';
 
 interface HomeProps {
   onNavigate: (page: PageType) => void;
@@ -38,16 +38,31 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
   });
   
   const [columnCount, setColumnCount] = useState(1);
+  // Cache to store column assignment for each item ID
+  const placementCache = useRef<Map<number, number>>(new Map());
+  // Ref to track column heights to persist across renders/updates
+  const columnHeightsRef = useRef<number[]>([]);
 
   useEffect(() => {
     const updateColumns = () => {
+      let newCols = 1;
       if (window.innerWidth >= 1024) {
-        setColumnCount(4);
+        newCols = 4;
       } else if (window.innerWidth >= 640) {
-        setColumnCount(2);
+        newCols = 2;
       } else {
-        setColumnCount(1);
+        newCols = 1;
       }
+      
+      setColumnCount(prev => {
+        if (prev !== newCols) {
+            // Clear cache when column count changes
+            placementCache.current.clear();
+            columnHeightsRef.current = new Array(newCols).fill(0);
+            return newCols;
+        }
+        return prev;
+      });
     };
 
     updateColumns();
@@ -57,27 +72,64 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
 
   const masonryColumns = useMemo(() => {
     const cols: Inspiration[][] = Array.from({ length: columnCount }, () => []);
-    const colHeights = new Array(columnCount).fill(0);
+    
+    // Initialize heights if length doesn't match
+    if (columnHeightsRef.current.length !== columnCount) {
+        columnHeightsRef.current = new Array(columnCount).fill(0);
+        // Also clear cache if column count mismatch (safety check)
+        placementCache.current.clear();
+    }
+    
+    // Create a temporary copy of heights for this calculation pass
+    // We need to be careful: if we just append, we should rely on cache.
+    // But if we are recalculating because of ratio change, we might need to update heights.
+    // Strategy: Rebuild heights from scratch based on current assignments to handle ratio changes
+    // BUT keep assignments fixed.
+    
+    const currentHeights = new Array(columnCount).fill(0);
+ 
+     inspirations.forEach((item) => {
+       let colIndex: number;
+       
+       // Find current shortest column
+       let minHeight = currentHeights[0];
+       let minColIndex = 0;
+       
+       for (let i = 1; i < columnCount; i++) {
+           if (currentHeights[i] < minHeight) {
+           minHeight = currentHeights[i];
+           minColIndex = i;
+           }
+       }
 
-    inspirations.forEach((item) => {
-      // 寻找当前高度最小的列
-      let minHeight = colHeights[0];
-      let minColIndex = 0;
+       if (placementCache.current.has(item.id)) {
+         colIndex = placementCache.current.get(item.id)!;
+         // Safety check: if cached index is out of bounds
+         if (colIndex >= columnCount) {
+             colIndex = minColIndex;
+             placementCache.current.set(item.id, colIndex);
+         } else {
+             // Re-balance check: if cached column is significantly taller than shortest column
+             // Allow migration to prevent large gaps. Threshold = 1.2 (approx one square image height)
+             if (currentHeights[colIndex] > minHeight + 1.2) {
+                 colIndex = minColIndex;
+                 placementCache.current.set(item.id, colIndex);
+             }
+         }
+       } else {
+         colIndex = minColIndex;
+         placementCache.current.set(item.id, colIndex);
+       }
+ 
+       cols[colIndex].push(item);
       
-      for (let i = 1; i < columnCount; i++) {
-        if (colHeights[i] < minHeight) {
-          minHeight = colHeights[i];
-          minColIndex = i;
-        }
-      }
-
-      cols[minColIndex].push(item);
-      
-      // 更新列高度 (假设宽度为1，高度 = 1 / aspectRatio)
-      // 如果没有宽高比，默认假设为正方形 (1:1)
+      // Update height for next iteration
       const ratio = item.aspectRatio || 1.0;
-      colHeights[minColIndex] += (1 / ratio);
+      currentHeights[colIndex] += (1 / ratio);
     });
+    
+    // Update ref for consistency (though we rebuilt it from scratch here)
+    columnHeightsRef.current = currentHeights;
     
     return cols;
   }, [inspirations, columnCount]);
@@ -151,7 +203,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
   }, [slides.length]);
 
   // 点赞/取消点赞
-  const toggleLike = async (e: React.MouseEvent, id: number) => {
+  const toggleLike = useCallback(async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
     
     if (!userId) {
@@ -164,13 +216,12 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
       const result = await publishAPI.toggleLike(userId, id);
       
       // 更新本地状态
-      const next = new Set(likedIds);
-      if (result.isLiked) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      setLikedIds(next);
+      setLikedIds((prev) => {
+        const next = new Set(prev);
+        if (result.isLiked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
       
       // 更新灵感列表中的点赞数
       setInspirations(prev => prev.map(item => 
@@ -179,7 +230,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
     } catch (error: any) {
       console.error('操作失败：', error);
     }
-  };
+  }, [userId]);
 
   const hotTools = [
     { id: 'image-analysis', name: '图视分析', desc: '深度解析图像与视频细节', icon: Eye, color: 'from-[#2cc2f5]/20 to-[#6b48ff]/20', borderColor: 'hover:border-[#2cc2f5]/50' },
@@ -189,7 +240,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
   ];
 
   // 从API加载灵感广场内容
-  const loadInspirations = async (currentPage: number, isLoadMore: boolean = false) => {
+  const loadInspirations = useCallback(async (currentPage: number, isLoadMore: boolean = false) => {
     try {
       if (isLoadMore) {
         setLoadingMore(true);
@@ -198,7 +249,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
       }
       
       // 获取发布内容列表
-      const result = await publishAPI.getPublishedContents('all', currentPage, 20, userId);
+      const pageSize = 12;
+      const result = await publishAPI.getPublishedContents('all', currentPage, pageSize, userId);
       const contents = result.records;
       
       // 转换为Inspiration格式
@@ -252,7 +304,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
           user: content.userName,
           avatar: content.userAvatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${content.userId}`,
           likes: content.likeCount || 0,
-          img: content.thumbnail || content.contentUrl,
+          img: content.thumbnail || (content.type === 'image' ? content.contentUrl : ''),
           height: height,
           desc: content.description,
           prompt: prompt,
@@ -268,6 +320,12 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
         };
       });
       
+      const urlsToPrefetch = inspirationList
+        .slice(0, isLoadMore ? 8 : 12)
+        .flatMap((item) => [item.img, item.avatar])
+        .filter(Boolean);
+      void prefetchSignedUrls(urlsToPrefetch);
+
       if (isLoadMore) {
         setInspirations(prev => [...prev, ...inspirationList]);
       } else {
@@ -275,13 +333,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
       }
       
       // 更新likedIds集合
-      const newLikedIds = new Set(isLoadMore ? likedIds : []);
-      inspirationList.forEach(item => {
-        if (item.isLiked) {
-          newLikedIds.add(item.id);
-        }
+      setLikedIds((prev) => {
+        const next = new Set<number>(isLoadMore ? prev : []);
+        inspirationList.forEach((item) => {
+          if (item.isLiked) next.add(item.id);
+        });
+        return next;
       });
-      setLikedIds(newLikedIds);
       
       // 检查是否还有更多数据
       setHasMore(currentPage < result.pages);
@@ -295,13 +353,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
       setLoadingInspirations(false);
       setLoadingMore(false);
     }
-  };
+  }, [userId]);
 
   // 初始加载
   useEffect(() => {
     setPage(1);
     loadInspirations(1, false);
-  }, [userId]);
+  }, [userId, loadInspirations]);
 
   // 加载更多
   const handleLoadMore = useCallback(() => {
@@ -322,7 +380,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
           handleLoadMore();
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: '300px' }
     );
 
     if (observerTarget.current) {
@@ -334,7 +392,31 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
         observer.unobserve(observerTarget.current);
       }
     };
-  }, [hasMore, loadingMore, handleLoadMore]);
+  }, [hasMore, loadingMore, handleLoadMore, loadingInspirations]);
+
+  // 图片加载完成，更新宽高比以修正瀑布流布局
+  const handleImageLoad = useCallback((id: number, e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    if (!naturalWidth || !naturalHeight) return;
+
+    const newRatio = naturalWidth / naturalHeight;
+
+    setInspirations(prev => {
+      const index = prev.findIndex(item => item.id === id);
+      if (index === -1) return prev;
+
+      const item = prev[index];
+      // 如果现有比例与实际比例差异较大，则更新
+      const currentRatio = item.aspectRatio || 1.0;
+      
+      if (Math.abs(currentRatio - newRatio) > 0.05) {
+        const newInspirations = [...prev];
+        newInspirations[index] = { ...item, aspectRatio: newRatio };
+        return newInspirations;
+      }
+      return prev;
+    });
+  }, []);
 
   // 处理广告点击
   const handleAdClick = (slide: typeof slides[0]) => {
@@ -473,34 +555,45 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
                     >
                       {item.type === 'video' ? (
                         <div className="relative w-full">
-                          {item.img && item.img !== item.contentUrl ? (
+                          {item.img ? (
                             <SecureImage 
                               src={item.img} 
                               className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
-                              alt={item.title} 
+                              alt={item.title}
+                              loading="lazy"
+                              decoding="async"
+                              onLoad={(e) => handleImageLoad(item.id, e)}
                             />
                           ) : (
-                            <SecureVideo 
-                              src={item.contentUrl} 
-                              className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`}
-                              muted
-                              loop
-                              playsInline
-                              preload="metadata"
-                            />
+                            <div className="w-full aspect-video bg-[#0b0f1d] flex items-center justify-center">
+                              <Video className="w-8 h-8 text-white/20" />
+                            </div>
                           )}
                           <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 flex items-center justify-center pointer-events-none">
                             <PlaySquare className="w-4 h-4 text-white/90" />
                           </div>
                         </div>
                       ) : (
-                        <SecureImage src={item.img} className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} alt={item.title} />
+                        <SecureImage 
+                          src={item.img} 
+                          className={`w-full object-cover transition-transform duration-700 group-hover:scale-110 ${item.height}`} 
+                          alt={item.title}
+                          loading="lazy"
+                          decoding="async"
+                          onLoad={(e) => handleImageLoad(item.id, e)}
+                        />
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-5">
-                        <p className="text-sm font-black text-white mb-4 line-clamp-1">{item.title}</p>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent flex flex-col justify-end p-1 sm:p-2">
+                        <p className="text-sm font-black text-white mb-2 line-clamp-1">{item.title}</p>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
-                            <SecureImage src={item.avatar} className="w-7 h-7 rounded-full border border-white/20" alt={item.user} />
+                            <SecureImage
+                              src={item.avatar}
+                              className="w-7 h-7 rounded-full border border-white/20"
+                              alt={item.user}
+                              loading="lazy"
+                              decoding="async"
+                            />
                             <span className="text-[11px] font-black text-white">{item.user}</span>
                           </div>
                           <button 

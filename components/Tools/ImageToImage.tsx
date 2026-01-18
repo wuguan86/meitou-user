@@ -283,15 +283,13 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
         const newFiles = [...files];
         newFiles[index] = imageUrl;
         setFiles(newFiles);
+        message.success('图片上传成功');
       } catch (error) {
-        // 如果上传失败，使用base64作为备选方案
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const newFiles = [...files];
-          newFiles[index] = ev.target?.result as string;
-          setFiles(newFiles);
-        };
-        reader.readAsDataURL(f);
+        console.error('上传失败:', error);
+        message.error('图片上传失败，请检查网络或图片格式');
+      } finally {
+        // 清除input的值，以便可以重新选择同一张图片
+        e.target.value = '';
       }
     }
   };
