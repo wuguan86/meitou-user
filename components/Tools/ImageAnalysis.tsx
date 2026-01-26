@@ -7,6 +7,7 @@ import * as uploadAPI from '../../api/upload';
 import { PlatformModelResponse, optimizePrompt } from '../../api/generation';
 import { getApiBaseUrl } from '../../api/config';
 import { ApiError, promptRechargeForInsufficientBalance } from '../../api/index';
+import { getSiteCategoryByDomain } from '../../utils/domainValidator';
 
 interface ImageAnalysisProps {
   onDeductPoints?: (points: number) => void;
@@ -29,6 +30,12 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
   const [isThinkingCollapsed, setIsThinkingCollapsed] = useState(true);
   const [model, setModel] = useState('');
   const [availableModels, setAvailableModels] = useState<PlatformModelResponse['models']>([]);
+  const isEcommerceSite = getSiteCategoryByDomain() === 2;
+  const directionPlaceholder = isEcommerceSite
+    ? '请输入产品名称（必填），可选填写制造商名称和日期，即可为您生成欧洲符合性声明'
+    : (mode === 'image'
+      ? '您可以要求AI对上传的图片进行分析，比如人像的五官美学分析、皮肤分析建议等'
+      : '您可以要求AI对上传的视频进行脚本提取、内容结构拆解、爆款内容仿写等');
 
   const thinkParserRef = useRef({
     pending: '',
@@ -672,9 +679,7 @@ const ImageAnalysis: React.FC<ImageAnalysisProps> = ({ onDeductPoints, available
                 <span>分析方向 (可选)</span>
               </div>
               <textarea 
-                placeholder={mode === 'image' 
-                  ? "您可以要求AI对上传的图片进行分析，比如人像的五官美学分析、皮肤分析建议等" 
-                  : "您可以要求AI对上传的视频进行脚本提取、内容结构拆解、爆款内容仿写等"}
+                placeholder={directionPlaceholder}
                 value={direction}
                 onChange={(e) => setDirection(e.target.value)}
                 className="w-full h-32 bg-[#060813] border border-white/5 rounded-2xl p-5 text-sm font-medium focus:border-cyan-500 outline-none transition-all placeholder:text-gray-700 leading-relaxed"

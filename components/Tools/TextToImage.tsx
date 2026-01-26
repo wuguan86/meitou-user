@@ -7,6 +7,7 @@ import AssetPickerModal from '../Modals/AssetPickerModal';
 import { SecureImage } from '../SecureImage';
 import * as generationAPI from '../../api/generation';
 import { promptRechargeForInsufficientBalance } from '../../api/index';
+import { getSiteCategoryByDomain } from '../../utils/domainValidator';
 
 interface TextToImageProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -38,6 +39,10 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
   const [loadingModels, setLoadingModels] = useState(true); // 加载模型列表状态
   const [progress, setProgress] = useState(0); // 进度条状态
   const [optimizing, setOptimizing] = useState(false);
+  const isEcommerceSite = getSiteCategoryByDomain() === 2;
+  const promptPlaceholder = isEcommerceSite
+    ? '描述您的商品和使用场景，例如：黑色咖啡机，厨房台面，真实电商摄影风格。'
+    : '您可以描述您想要的图片内容，比如摄像机面前，一个有着真实的白皙的皮肤纹理和颗粒感的亚裔女生面对镜头，双眼皮，小巧的鼻翼、微翘的双唇';
   const progressIntervalRef = useRef<any>(null);
 
   // 组件卸载时清除定时器
@@ -144,14 +149,9 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
         }
       } catch (error: any) {
         console.error('加载模型列表失败:', error);
-        // 加载失败时使用默认模型
-        const defaultModels: ModelOption[] = [
-          { id: 'meji-flux-v2', name: 'Meji Flux v2.2 (超写实)', defaultCost: 10 },
-          { id: 'meji-anime-v1', name: 'Meji Anime (二次元)', defaultCost: 10 },
-          { id: 'meji-scifi-v3', name: 'Meji Sci-Fi (科幻设定)', defaultCost: 10 }
-        ];
-        setModels(defaultModels);
-        setModel(prevModel => prevModel || 'meji-flux-v2');
+        // 加载失败时不使用默认模型
+        setModels([]);
+        setModel('');
       } finally {
         setLoadingModels(false);
       }
@@ -413,7 +413,7 @@ const TextToImage: React.FC<TextToImageProps> = ({ onSelectAsset, onDeductPoints
             <textarea 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="您可以描述您想要的图片内容，比如摄像机面前，一个有着真实的白皙的皮肤纹理和颗粒感的亚裔女生面对镜头，双眼皮，小巧的鼻翼、微翘的双唇"
+              placeholder={promptPlaceholder}
               className="w-full h-48 bg-[#060813] border border-white/5 rounded-2xl p-6 text-sm resize-none focus:border-cyan-500 outline-none transition-all font-medium leading-relaxed"
             />
             <div className="flex justify-end mt-4">

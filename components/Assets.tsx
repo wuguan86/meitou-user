@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { FolderPlus, Upload, Folder, Music, ChevronRight, Home, Trash2, Edit3, CheckSquare, Square, Video, X, Check } from 'lucide-react';
 import { message, Modal } from 'antd';
 import { AssetNode } from '../types';
+import { formatTitle } from '../utils/stringUtils';
 import { getAssets, getFolders, createFolder, updateFolder, deleteFolder, uploadAsset, deleteAsset, deleteAssets, updateAsset, UserAsset, AssetFolder } from '../api/asset';
 import { SecureImage } from './SecureImage';
 
@@ -273,7 +274,7 @@ const Assets: React.FC<AssetsProps> = ({ onSelectAsset }) => {
   const assetToNode = (asset: UserAsset): AssetNode => {
     return {
       id: asset.id.toString(),
-      name: asset.title,
+      name: formatTitle(asset.title),
       type: asset.type as 'image' | 'video' | 'audio',
       url: asset.url,
       createdAt: new Date(asset.uploadDate).getTime(),

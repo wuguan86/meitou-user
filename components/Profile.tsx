@@ -8,6 +8,7 @@ import { SecureImage } from './SecureImage';
 import { SecureVideo } from './SecureVideo';
 import { storageApi } from '../api/storage';
 import { needsSignedUrl } from '../hooks/useSignedUrl';
+import { formatTitle } from '../utils/stringUtils';
 
 interface ProfileProps {
   user: User;
@@ -213,8 +214,8 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
         id: String(record.id),
         url: record.contentUrl,
         type: record.fileType as any,
-        name: record.prompt, // Fix: Add name property required by PublishModal
-        title: record.prompt,
+        name: record.title || formatTitle(record.prompt), // Fix: Add name property required by PublishModal
+        title: record.title || formatTitle(record.prompt),
         thumbnail: record.thumbnailUrl,
         generationRecordId: record.id,
         generationType: record.type as any,
@@ -359,8 +360,8 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                       id: String(record.id),
                       url: record.contentUrl,
                       type: record.fileType,
-                      name: record.prompt,
-                      title: record.prompt,
+                      name: record.title || formatTitle(record.prompt),
+                      title: record.title || formatTitle(record.prompt),
                       thumbnail: record.thumbnailUrl,
                       generationRecordId: record.id,
                       createdAt: new Date(record.createdAt).getTime(),
@@ -469,7 +470,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                   
                   {/* Title Overlay */}
                   <div className="absolute top-0 left-0 p-3 w-full bg-gradient-to-b from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                    <p className="text-white text-sm font-medium truncate">{record.prompt}</p>
+                    <p className="text-white text-sm font-medium truncate">{record.title || formatTitle(record.prompt)}</p>
                   </div>
                 </div>
               ))}

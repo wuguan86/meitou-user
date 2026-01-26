@@ -8,13 +8,36 @@ const ALLOWED_DOMAINS = [
   'localhost', // 开发环境
   '127.0.0.1', // 开发环境
   '192.168.1.5', // 内网开发环境
-  'medical.example.com', // 医美类生产域名
-  'ecommerce.example.com', // 电商类生产域名
-  'life.example.com', // 生活服务类生产域名
+  'toutouyimei.com', // 医美类生产域名
+  'b.meitouwang.cn', // 电商类生产域名
+  'toutouapp.cn', // 生活服务类生产域名
 ];
+
+// 域名对应的站点类型映射
+const DOMAIN_SITE_CATEGORY_MAP: Record<string, number> = {
+  'toutouyimei.com': 1,
+  'b.meitouwang.cn': 2,
+  'toutouapp.cn': 3,
+};
 
 // 允许的端口（开发环境）
 const ALLOWED_PORTS = ['3000', '3001', '8085', '80', '443'];
+
+
+export const getSiteCategoryByDomain = (): number => {
+  if (import.meta.env.DEV) {
+    return 1;
+  }
+
+  const hostname = window.location.hostname;
+  for (const [domain, category] of Object.entries(DOMAIN_SITE_CATEGORY_MAP)) {
+    if (hostname === domain || hostname.endsWith(`.${domain}`)) {
+      return category;
+    }
+  }
+
+  return 1;
+};
 
 /**
  * 验证当前域名是否在允许列表中

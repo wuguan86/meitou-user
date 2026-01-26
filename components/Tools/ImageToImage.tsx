@@ -31,6 +31,7 @@ import * as generationAPI from '../../api/generation';
 import * as uploadAPI from '../../api/upload';
 import { promptRechargeForInsufficientBalance } from '../../api/index';
 import { storageApi } from '../../api/storage';
+import { getSiteCategoryByDomain } from '../../utils/domainValidator';
 
 interface ImageToImageProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -67,6 +68,10 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
   const [optimizing, setOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
   const progressIntervalRef = useRef<any>(null);
+  const isEcommerceSite = getSiteCategoryByDomain() === 2;
+  const promptPlaceholder = isEcommerceSite
+    ? '描述您想添加的场景或效果，例如：添加办公桌背景，调整光线。或者描述您希望对图片进行的修改，例如：换成白色背景，增加厨房使用场景，保持产品外形不变'
+    : '您可以描述您想要优化的图片内容，比如将图片的人物眼睛换成双眼皮，保留皮肤的真实感的同时，把皮肤的痘印淡化。';
 
   // 组件卸载时清除定时器
   useEffect(() => {
@@ -246,9 +251,8 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
         }
       } catch (error: any) {
         console.error('加载模型列表失败:', error);
-        // 如果加载失败，使用默认模型
-        setModels([{ id: 'flux-1.0', name: 'Flux 1.0 (推荐)', defaultCost: 15 }]);
-        setModel('flux-1.0');
+        setModels([]);
+        setModel('');
       } finally {
         setLoadingModels(false);
       }
@@ -603,7 +607,7 @@ const ImageToImage: React.FC<ImageToImageProps> = ({ onSelectAsset, onDeductPoin
                 <textarea 
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="您可以描述您想要优化的图片内容，比如将图片的人物眼睛换成双眼皮，保留皮肤的真实感的同时，把皮肤的痘印淡化。"
+                  placeholder={promptPlaceholder}
                   className="w-full h-36 bg-transparent p-5 text-sm font-medium outline-none resize-none placeholder:text-gray-700 leading-relaxed"
                 />
               </div>

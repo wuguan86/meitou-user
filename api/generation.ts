@@ -234,6 +234,7 @@ export interface GenerationRecord {
   type: string; // txt2img, img2img, txt2video, img2video
   model: string;
   prompt: string;
+  title?: string;
   status: string;
   contentUrl: string;
   thumbnailUrl?: string;

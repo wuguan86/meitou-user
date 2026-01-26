@@ -204,7 +204,21 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
                 {params.model && (
                   <div className="bg-black/20 p-3 rounded-lg border border-white/5">
                     <span className="text-gray-500 block text-xs mb-1">模型 Model</span>
-                    <span className="text-white font-medium">{modelName || params.model}</span>
+                    <span className="text-white font-medium">
+                      {(() => {
+                        if (modelName) {
+                          if (params.model && modelName.startsWith(params.model)) {
+                            let name = modelName.slice(params.model.length).trim();
+                            if (name.startsWith('(') && name.endsWith(')')) {
+                              name = name.slice(1, -1);
+                            }
+                            return name || modelName;
+                          }
+                          return modelName;
+                        }
+                        return params.model;
+                      })()}
+                    </span>
                   </div>
                 )}
                 {params.resolution && (

@@ -9,6 +9,7 @@ import AssetPickerModal from '../Modals/AssetPickerModal';
 import * as generationAPI from '../../api/generation';
 import { uploadImage, uploadVideo } from '../../api/upload';
 import { promptRechargeForInsufficientBalance } from '../../api/index';
+import { getSiteCategoryByDomain } from '../../utils/domainValidator';
 
 interface ImageToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -58,6 +59,10 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const [characterVideoHasMore, setCharacterVideoHasMore] = useState(true);
   const [characterVideoRecords, setCharacterVideoRecords] = useState<generationAPI.GenerationRecord[]>([]);
   const [selectedCharacterVideoRecord, setSelectedCharacterVideoRecord] = useState<generationAPI.GenerationRecord | null>(null);
+  const isEcommerceSite = getSiteCategoryByDomain() === 2;
+  const novicePromptPlaceholder = isEcommerceSite
+    ? '请描述希望图片中的产品如何运动或展示，例如：旋转展示产品外观，保持产品外形不变，或者描述您希望加入的创意动作或氛围，例如：慢动作展示，电影灯光效果'
+    : '输入视频描述...';
   const [addCharacterFromVideoName, setAddCharacterFromVideoName] = useState('');
   const [isSavingCharacterLoading, setIsSavingCharacterLoading] = useState(false);
   const [isAddingCharacterLoading, setIsAddingCharacterLoading] = useState(false);
@@ -148,7 +153,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         setSavingCharacter(false);
         setNewCharacterName('');
     } catch (e: any) {
-        message.error({ content: normalizeSaveCharacterErrorMessage(e?.message), key: 'saveCharacter' });
+        // 全局拦截器已处理错误提示，此处不再重复提示
+        // message.error({ content: normalizeSaveCharacterErrorMessage(e?.message), key: 'saveCharacter' });
     } finally {
         setIsSavingCharacterLoading(false);
     }
@@ -164,6 +170,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
             message.error('删除角色失败');
         }
     };
+
+  const getModelDisplayName = (modelId: string) => {
+    const found = models.find(m => m.id === modelId);
+    return found ? found.name : modelId;
+  };
 
   const isEligibleCharacterRecord = (record: generationAPI.GenerationRecord) => {
     return (
@@ -254,7 +265,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
       setAddCharacterFromVideoName('');
       setCharacterManagerView('list');
     } catch (e: any) {
-      message.error({ content: normalizeSaveCharacterErrorMessage(e?.message), key: 'saveCharacterFromVideo' });
+      // 全局拦截器已处理错误提示，此处不再重复提示
+      // message.error({ content: normalizeSaveCharacterErrorMessage(e?.message), key: 'saveCharacterFromVideo' });
     } finally {
       setIsAddingCharacterLoading(false);
     }
@@ -584,9 +596,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         }
       } catch (error: any) {
         console.error('加载模型列表失败:', error);
-        // 如果加载失败，使用默认模型
-        setModels([{ id: 'meji-vid-gen-v1', name: 'Meji Animation v1.0', defaultCost: 20 }]);
-        setModel('meji-vid-gen-v1');
+        setModels([]);
+        setModel('');
       } finally {
         setLoadingModels(false);
       }
@@ -1814,7 +1825,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                     <textarea 
                         value={novicePrompt}
                         onChange={(e) => setNovicePrompt(e.target.value)}
-                        placeholder="输入视频描述..."
+                        placeholder={novicePromptPlaceholder}
                         className="w-full h-24 bg-transparent outline-none text-sm resize-none font-medium leading-relaxed"
                     />
                     <div className="flex justify-end mt-2 px-1">
@@ -2177,8 +2188,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                        </div>
                        <div className="p-3 space-y-1">
                          <p className="text-xs font-bold text-white truncate">{formatPrompt(record.prompt) || '未命名视频'}</p>
-                         <p className="text-[10px] text-gray-400 truncate">模型：{record.model}</p>
-                         <p className="text-[10px] text-gray-500">生成于 {formatRecordCreatedAt(record.createdAt)}</p>
+                        <p className="text-[10px] text-gray-400 truncate">模型：{getModelDisplayName(record.model)}</p>
+                        <p className="text-[10px] text-gray-500">生成于 {formatRecordCreatedAt(record.createdAt)}</p>
                        </div>
                      </button>
                    ))}
@@ -2343,7 +2354,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                   </div>
                   <div className="p-3 space-y-1">
                     <p className="text-xs font-bold text-white truncate">{formatPrompt(record.prompt) || '未命名视频'}</p>
-                    <p className="text-[10px] text-gray-400 truncate">模型：{record.model}</p>
+                    <p className="text-[10px] text-gray-400 truncate">模型：{getModelDisplayName(record.model)}</p>
                     <p className="text-[10px] text-gray-500">生成于 {formatRecordCreatedAt(record.createdAt)}</p>
                   </div>
                 </button>

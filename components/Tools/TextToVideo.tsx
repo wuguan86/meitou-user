@@ -10,6 +10,7 @@ import PublishModal from '../Modals/PublishModal';
 import { SecureVideo } from '../SecureVideo';
 import * as generationAPI from '../../api/generation';
 import { promptRechargeForInsufficientBalance } from '../../api/index';
+import { getSiteCategoryByDomain } from '../../utils/domainValidator';
 
 interface TextToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -38,6 +39,10 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
   const [model, setModel] = useState('');
   const [duration, setDuration] = useState<string|number>(5);
   const [resolution, setResolution] = useState('Auto');
+  const isEcommerceSite = getSiteCategoryByDomain() === 2;
+  const promptPlaceholder = isEcommerceSite
+    ? '描述您的产品和展示方式，例如：无线吸尘器，在客厅清洁演示，真实电商风格，又或者描述您的品牌创意场景，例如：高端手表，夜晚城市背景，电影广告风格'
+    : '描述视频场景...';
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [ratiosOpen, setRatiosOpen] = useState(false);
   const [resolutionOpen, setResolutionOpen] = useState(false);
@@ -205,9 +210,8 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
         }
       } catch (error: any) {
         console.error('加载模型列表失败:', error);
-        // 如果加载失败，使用默认模型
-        setModels([{ id: 'meji-video-turbo', name: 'Meji Video Turbo (高速)', defaultCost: 20 }]);
-        setModel('meji-video-turbo');
+        setModels([]);
+        setModel('');
       } finally {
         setLoadingModels(false);
       }
@@ -461,7 +465,7 @@ const TextToVideo: React.FC<TextToVideoProps> = ({ onSelectAsset, onDeductPoints
               <textarea 
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="描述视频场景..."
+                placeholder={promptPlaceholder}
                 className="w-full h-32 bg-transparent outline-none text-sm resize-none font-medium leading-relaxed"
               />
             </div>

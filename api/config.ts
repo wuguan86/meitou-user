@@ -5,9 +5,9 @@
 
 // 允许访问的三个业务域名
 const ALLOWED_DOMAINS = [
-  'medical.example.com', // 医美类
-  'ecommerce.example.com', // 电商类
-  'life.example.com', // 生活服务类
+  'toutouyimei.com', // 医美类
+  'b.meitouwang.cn', // 电商类
+  'toutouapp.cn', // 生活服务类
 ];
 
 /**
@@ -48,9 +48,9 @@ export const getApiBaseUrl = (): string => {
   // 如果前端和后端在同一域名下，使用相对路径可以避免跨域问题
   // 如果前端和后端在不同域名，需要配置具体的后端API地址
   const domainToApiMap: Record<string, string> = {
-    'medical.example.com': '/api', // 医美类 - 使用相对路径（通过Nginx代理）
-    'ecommerce.example.com': '/api', // 电商类 - 使用相对路径（通过Nginx代理）
-    'life.example.com': '/api', // 生活服务类 - 使用相对路径（通过Nginx代理）
+    'toutouyimei.com': '/api', // 医美类 - 使用相对路径（通过Nginx代理）
+    'b.meitouwang.cn': '/api', // 电商类 - 使用相对路径（通过Nginx代理）
+    'toutouapp.cn': '/api', // 生活服务类 - 使用相对路径（通过Nginx代理）
   };
   
   // 如果当前域名在映射表中，使用对应的API地址
