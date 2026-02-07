@@ -358,6 +358,14 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const [continuationVideoHasMore, setContinuationVideoHasMore] = useState(true);
   const [continuationVideoRecords, setContinuationVideoRecords] = useState<generationAPI.GenerationRecord[]>([]);
   const [selectedContinuationRecord, setSelectedContinuationRecord] = useState<generationAPI.GenerationRecord | null>(null);
+  
+  // Novice Mode Specific State
+  const [noviceFile, setNoviceFile] = useState<string | null>(null);
+  const [noviceAspectRatio, setNoviceAspectRatio] = useState('16:9');
+  const [noviceDuration, setNoviceDuration] = useState<string|number>(5);
+  const [noviceResolution, setNoviceResolution] = useState('720P');
+  const [noviceQuantity, setNoviceQuantity] = useState(1);
+
   const progressIntervalRef = useRef<any>(null);
 
   // 组件卸载时清除定时器
@@ -473,7 +481,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const calculateCost = () => {
     // 基础消耗
     const baseCost = currentModel?.defaultCost || 20;
-    return baseCost * quantity;
+    const qty = mainMode === 'novice' ? noviceQuantity : quantity;
+    return baseCost * qty;
   };
 
   // 当模型改变时，检查当前参数是否有效，如果无效则重置
@@ -482,10 +491,12 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
       if (currentModel.resolutions && currentModel.resolutions.length > 0) {
         if (!currentModel.resolutions.includes(resolution)) setResolution(currentModel.resolutions[0]);
         if (!currentModel.resolutions.includes(step1Resolution)) setStep1Resolution(currentModel.resolutions[0]);
+        if (!currentModel.resolutions.includes(noviceResolution)) setNoviceResolution(currentModel.resolutions[0]);
       }
       if (currentModel.ratios && currentModel.ratios.length > 0) {
         if (!currentModel.ratios.includes(aspectRatio)) setAspectRatio(currentModel.ratios[0]);
         if (!currentModel.ratios.includes(step1AspectRatio)) setStep1AspectRatio(currentModel.ratios[0]);
+        if (!currentModel.ratios.includes(noviceAspectRatio)) setNoviceAspectRatio(currentModel.ratios[0]);
       }
       // duration 检查
       if (currentModel.durations && currentModel.durations.length > 0) {
@@ -495,10 +506,18 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         if (typeof step1Duration === 'number' && !currentModel.durations.includes(step1Duration)) {
            setStep1Duration(currentModel.durations[0]);
         }
+        if (typeof noviceDuration === 'number' && !currentModel.durations.includes(noviceDuration)) {
+           setNoviceDuration(currentModel.durations[0]);
+        }
       }
       // quantity 检查
-      if (currentModel.quantities && currentModel.quantities.length > 0 && !currentModel.quantities.includes(quantity)) {
-        setQuantity(currentModel.quantities[0]);
+      if (currentModel.quantities && currentModel.quantities.length > 0) {
+          if (!currentModel.quantities.includes(quantity)) {
+             setQuantity(currentModel.quantities[0]);
+          }
+          if (!currentModel.quantities.includes(noviceQuantity)) {
+             setNoviceQuantity(currentModel.quantities[0]);
+          }
       }
     }
   }, [model, currentModel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -574,18 +593,22 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
               if (config.resolution) {
                 setResolution(config.resolution || '720P');
                 setStep1Resolution(config.resolution || '720P');
+                setNoviceResolution(config.resolution || '720P');
               }
               if (config.aspectRatio) {
                 setAspectRatio(config.aspectRatio || '16:9');
                 setStep1AspectRatio(config.aspectRatio || '16:9');
+                setNoviceAspectRatio(config.aspectRatio || '16:9');
               }
               if (config.duration) {
                 setDuration(config.duration || 5);
                 setStep1Duration(config.duration || 5);
+                setNoviceDuration(config.duration || 5);
               }
               // 加载参考图片
               if (config.referenceImage) {
                 setFile(config.referenceImage);
+                setNoviceFile(config.referenceImage);
               }
               // 清除localStorage中的配置
               localStorage.removeItem('makeSimilarConfig');
@@ -740,7 +763,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const handleFileSelect = (asset: AssetNode) => {
     if (asset.url) {
       if (activePicker === 'first') {
-        setFile(asset.url);
+        if (mainMode === 'novice') {
+            setNoviceFile(asset.url);
+        } else {
+            setFile(asset.url);
+        }
         setFileType(asset.type === 'video' ? 'video' : 'image');
       }
       else if (activePicker === 'last') setLastFrameFile(asset.url);
@@ -781,7 +808,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
             return;
         }
         if (noviceSubMode === 'frames') {
-            if (!file) {
+            if (!noviceFile) {
                 message.warning('请上传首帧图片');
                 return;
             }
@@ -866,8 +893,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
 
       if (mainMode === 'novice') {
           if (noviceSubMode === 'frames') {
-              imageToSend = file!;
-              firstFrameUrlToSend = file!;
+              imageToSend = noviceFile!;
+              firstFrameUrlToSend = noviceFile!;
               lastFrameUrlToSend = lastFrameFile || undefined;
           } else {
               imageToSend = referenceFiles[0];
@@ -902,14 +929,29 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
           }
       }
 
+      let selectedAspectRatio, selectedResolution, selectedDuration, selectedQuantity;
+
+      if (mainMode === 'novice') {
+          selectedAspectRatio = noviceAspectRatio;
+          selectedResolution = noviceResolution;
+          selectedDuration = noviceDuration;
+          selectedQuantity = noviceQuantity;
+      } else {
+          const useStep1Settings = mainMode === 'professional' && professionalMode === 'creation' && currentStep === 1;
+          selectedAspectRatio = useStep1Settings ? step1AspectRatio : aspectRatio;
+          selectedResolution = useStep1Settings ? step1Resolution : resolution;
+          selectedDuration = useStep1Settings ? step1Duration : duration;
+          selectedQuantity = quantity;
+      }
+
       const request: generationAPI.ImageToVideoRequest = {
         prompt: promptToSend,
         image: imageToSend || '', // 兼容必填字段
         model: model,
-        aspectRatio: (currentStep === 1 ? step1AspectRatio : aspectRatio) === 'Auto' ? undefined : (currentStep === 1 ? step1AspectRatio : aspectRatio),
-        resolution: (currentStep === 1 ? step1Resolution : resolution) === 'Auto' ? undefined : (currentStep === 1 ? step1Resolution : resolution),
-        duration: Number(currentStep === 1 ? step1Duration : duration),
-        quantity: quantity,
+        aspectRatio: selectedAspectRatio === 'Auto' ? undefined : selectedAspectRatio,
+        resolution: selectedResolution === 'Auto' ? undefined : selectedResolution,
+        duration: Number(selectedDuration),
+        quantity: selectedQuantity,
         
         firstFrameUrl: firstFrameUrlToSend,
         lastFrameUrl: lastFrameUrlToSend,
@@ -967,9 +1009,9 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
           setProgress(100);
       }
       
-      const usedResolution = currentStep === 1 ? step1Resolution : resolution;
-      const usedAspectRatio = currentStep === 1 ? step1AspectRatio : aspectRatio;
-      const usedDuration = currentStep === 1 ? step1Duration : duration;
+      const usedResolution = selectedResolution;
+      const usedAspectRatio = selectedAspectRatio;
+      const usedDuration = selectedDuration;
 
       // 构建生成配置参数
       const generationConfig: VideoGenerationConfig = {
@@ -989,7 +1031,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
         createdAt: Date.now(),
         url: response.videoUrl,
         prompt: currentPrompt,
-        originalImageUrl: file || undefined,
+        originalImageUrl: imageToSend || undefined,
         generationType: 'img2video',
         generationConfig: generationConfig,
         generationRecordId: response.generationRecordId,
@@ -1486,7 +1528,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                         <button 
                             onClick={() => { 
                                 setIsAssetPickerOpen(true); 
-                                if (!file) {
+                                if (!noviceFile) {
                                     setActivePicker('first');
                                 } else if (!lastFrameFile) {
                                     setActivePicker('last');
@@ -1503,11 +1545,11 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                     <div className="grid grid-cols-2 gap-4">
                          <div className="relative group">
                             <label className="block aspect-video border-2 border-dashed border-[#22283d] bg-[#151929] rounded-2xl cursor-pointer hover:border-[#ff2e8c]/30 transition-all overflow-hidden relative">
-                                {file ? (
+                                {noviceFile ? (
                                     <>
-                                        <SecureImage src={file} className="w-full h-full object-cover" alt="First Frame" />
+                                        <SecureImage src={noviceFile} className="w-full h-full object-cover" alt="First Frame" />
                                         <button 
-                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFile(null); }}
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNoviceFile(null); }}
                                             className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-10"
                                         >
                                             <X className="w-4 h-4" />
@@ -1523,7 +1565,7 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                                         <p className="text-xs font-bold text-gray-400">{uploading ? '上传中...' : '首帧'}</p>
                                     </div>
                                 )}
-                                <input type="file" className="hidden" onChange={handleGenericUpload(setFile)} accept="image/*" disabled={uploading} />
+                                <input type="file" className="hidden" onChange={handleGenericUpload(setNoviceFile)} accept="image/*" disabled={uploading} />
                             </label>
                          </div>
                          
@@ -1876,8 +1918,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                              return (
                              <button
                                 key={ratio}
-                                onClick={() => setAspectRatio(ratio)}
-                                className={`flex-1 py-2 text-xs font-bold rounded-md flex items-center justify-center space-x-1 ${aspectRatio === ratio ? 'bg-[#1c2132] text-white' : 'text-gray-500 hover:text-white'}`}
+                                onClick={() => setNoviceAspectRatio(ratio)}
+                                className={`flex-1 py-2 text-xs font-bold rounded-md flex items-center justify-center space-x-1 ${noviceAspectRatio === ratio ? 'bg-[#1c2132] text-white' : 'text-gray-500 hover:text-white'}`}
                              >
                                  {ratio === '16:9' ? <div className="w-3 h-2 border border-current rounded-[1px]"/> : 
                                   ratio === '9:16' ? <div className="w-2 h-3 border border-current rounded-[1px]"/> :
@@ -1894,8 +1936,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                         {availableDurations.map(d => (
                             <button
                                 key={d}
-                                onClick={() => setDuration(d)}
-                                className={`flex-1 py-2 text-xs font-bold rounded-md flex items-center justify-center ${duration === d ? 'bg-[#1c2132] text-white' : 'text-gray-500 hover:text-white'}`}
+                                onClick={() => setNoviceDuration(d)}
+                                className={`flex-1 py-2 text-xs font-bold rounded-md flex items-center justify-center ${noviceDuration === d ? 'bg-[#1c2132] text-white' : 'text-gray-500 hover:text-white'}`}
                             >
                                 {d}{d === 'Auto' ? '' : 's'}
                             </button>
@@ -1913,8 +1955,8 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                         {availableResolutions.map(res => (
                             <button
                                 key={res}
-                                onClick={() => setResolution(res)}
-                                className={`flex-1 py-2 text-xs font-bold rounded-md flex items-center justify-center ${resolution === res ? 'bg-[#1c2132] text-white' : 'text-gray-500 hover:text-white'}`}
+                                onClick={() => setNoviceResolution(res)}
+                                className={`flex-1 py-2 text-xs font-bold rounded-md flex items-center justify-center ${noviceResolution === res ? 'bg-[#1c2132] text-white' : 'text-gray-500 hover:text-white'}`}
                             >
                                 {res}
                             </button>
@@ -1925,12 +1967,12 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                     <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest">视频数量</label>
                     <div className="relative">
                         <button className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold bg-[#060813] border border-white/5 rounded-lg hover:bg-white/5 transition-colors">
-                          <span>{quantity}</span>
+                          <span>{noviceQuantity}</span>
                           <ChevronDown className="w-3 h-3 text-gray-600" />
                         </button>
                         <select 
-                            value={quantity}
-                            onChange={(e) => setQuantity(Number(e.target.value))}
+                            value={noviceQuantity}
+                            onChange={(e) => setNoviceQuantity(Number(e.target.value))}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         >
                             {availableQuantities.map(q => (

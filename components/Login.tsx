@@ -315,13 +315,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, siteConfig }) => {
       <div className="w-full max-w-[500px] relative z-10">
         <div className="bg-[#0d1121]/90 backdrop-blur-3xl border border-white/5 rounded-[3rem] p-12 shadow-[0_20px_80px_rgba(0,0,0,0.5)]">
           <div className="text-center mb-10">
-            {siteConfig?.logo ? (
+            {siteConfig?.logo && (
                 <div className="flex justify-center mb-6">
                     <SecureImage src={siteConfig.logo} alt="Logo" className="h-20 w-auto object-contain" />
-                </div>
-            ) : (
-                <div className="inline-flex items-center justify-center w-20 h-20 brand-gradient rounded-3xl shadow-2xl glow-pink mb-6 relative group">
-                   <span className="text-4xl font-black text-white italic">Meji</span>
                 </div>
             )}
             <h1 className="text-4xl font-black tracking-tighter mb-2">{siteConfig?.websiteName || '美迹AI'}</h1>

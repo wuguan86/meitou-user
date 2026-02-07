@@ -216,7 +216,7 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
                           }
                           return modelName;
                         }
-                        return params.model;
+                        return null;
                       })()}
                     </span>
                   </div>

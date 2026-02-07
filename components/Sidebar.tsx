@@ -174,15 +174,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         {/* 移动端关闭按钮 */}
         <div className="lg:hidden flex items-center justify-between p-4 border-b border-white/5">
           <div className="flex items-center space-x-2">
-            {logo ? (
+            {logo && (
                 <SecureImage src={logo} alt="Logo" className="w-9 h-9 object-contain rounded-xl" />
-            ) : (
-                <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
-                  <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
-                  <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                    <Heart className="w-4 h-4 text-white fill-current" />
-                  </div>
-                </div>
             )}
             <span className="text-xl font-bold text-white tracking-tight">{websiteName || '美迹AI'}</span>
           </div>
@@ -196,15 +189,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         
         {/* Brand Header - 桌面端显示 */}
         <div className="hidden lg:flex p-6 items-center space-x-2">
-        {logo ? (
+        {logo && (
             <SecureImage src={logo} alt="Logo" className="w-9 h-9 object-contain rounded-xl" />
-        ) : (
-            <div className="w-9 h-9 rounded-xl brand-gradient flex items-center justify-center shadow-lg relative overflow-hidden group">
-              <span className="text-white text-[11px] font-black italic relative z-10">Meji</span>
-              <div className="absolute -bottom-1 -right-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                <Heart className="w-4 h-4 text-white fill-current" />
-              </div>
-            </div>
         )}
         <span className="text-xl font-bold text-white tracking-tight">{websiteName || '美迹AI'}</span>
         {copyright && (
