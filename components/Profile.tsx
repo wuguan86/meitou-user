@@ -7,7 +7,6 @@ import { message, Modal, ConfigProvider } from 'antd';
 import { SecureImage } from './SecureImage';
 import { SecureVideo } from './SecureVideo';
 import { storageApi } from '../api/storage';
-import { needsSignedUrl } from '../hooks/useSignedUrl';
 import { formatTitle } from '../utils/stringUtils';
 
 interface ProfileProps {
@@ -31,6 +30,34 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
   const [loadingMore, setLoadingMore] = useState(false);
   const deletedIdsRef = useRef<Set<string>>(new Set());
 
+  const dedupeRecords = (items: GenerationRecord[]) => {
+    const seen = new Set<number>();
+    const result: GenerationRecord[] = [];
+    items.forEach(item => {
+      if (seen.has(item.id)) return;
+      seen.add(item.id);
+      result.push(item);
+    });
+    return result;
+  };
+
+  const mergeRecords = (prev: GenerationRecord[], next: GenerationRecord[]) => {
+    if (prev.length === 0) return next;
+    const seen = new Set<number>();
+    const merged: GenerationRecord[] = [];
+    prev.forEach(item => {
+      if (seen.has(item.id)) return;
+      seen.add(item.id);
+      merged.push(item);
+    });
+    next.forEach(item => {
+      if (seen.has(item.id)) return;
+      seen.add(item.id);
+      merged.push(item);
+    });
+    return merged;
+  };
+
   const loadRecords = useCallback(async (page: number, isLoadMore: boolean = false) => {
     if (!user.id) return;
     if (isLoadMore) {
@@ -44,10 +71,12 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
       const data = await getGenerationRecords(page, pageSize, typeParam);
       
       // Filter out deleted records
-      const filteredRecords = data.records.filter(r => !deletedIdsRef.current.has(String(r.id)));
+      const filteredRecords = dedupeRecords(
+        data.records.filter(r => !deletedIdsRef.current.has(String(r.id)))
+      );
       
       if (isLoadMore) {
-        setRecords(prev => [...prev, ...filteredRecords]);
+        setRecords(prev => mergeRecords(prev, filteredRecords));
         setCurrentPage(page);
       } else {
         setRecords(filteredRecords);
@@ -171,18 +200,48 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
     });
   };
 
-  const handleDownload = async (e: React.MouseEvent, url: string) => {
+  const handleDownload = async (e: React.MouseEvent, record: GenerationRecord) => {
     e.stopPropagation();
     try {
-      if (!needsSignedUrl(url)) {
-        window.open(url, '_blank');
+      const url = record.contentUrl;
+      if (!url) {
         return;
       }
-      const signed = await storageApi.getFileUrl(url);
-      window.open(signed, '_blank');
+      const fileName = buildRecordFileName(record);
+      const downloadUrl = await storageApi.getDownloadUrl(url, fileName);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
-      window.open(url, '_blank');
+      if (record.contentUrl) {
+        window.open(record.contentUrl, '_blank');
+      }
     }
+  };
+
+  const buildRecordFileName = (record: GenerationRecord) => {
+    const base = (record.title || formatTitle(record.prompt) || 'download').trim();
+    const safeBase = base.replace(/[\\/:*?"<>|]/g, '_') || 'download';
+    const ext = extractExtension(record.contentUrl, record.fileType);
+    if (safeBase.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+      return safeBase;
+    }
+    return `${safeBase}.${ext}`;
+  };
+
+  const extractExtension = (url?: string, fileType?: string) => {
+    if (url) {
+      const clean = url.split('?')[0];
+      const lastDot = clean.lastIndexOf('.');
+      if (lastDot > -1 && lastDot < clean.length - 1) {
+        return clean.substring(lastDot + 1);
+      }
+    }
+    return fileType === 'video' ? 'mp4' : 'png';
   };
 
   const handlePublish = (e: React.MouseEvent, record: GenerationRecord) => {
@@ -432,7 +491,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onSelectAsset, on
                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end pb-2 pr-2 gap-2">
                     {record.status !== 'failed' && (
                       <button 
-                        onClick={(e) => handleDownload(e, record.contentUrl)}
+                        onClick={(e) => handleDownload(e, record)}
                         className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
                         title="下载"
                       >

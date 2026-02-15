@@ -13,6 +13,7 @@ import {
   PlatformModelResponse,
   getGenerationRecord
 } from '../../api/generation';
+import { storageApi } from '../../api/storage';
 
 interface AssetDetailModalProps {
   asset: AssetNode;
@@ -88,23 +89,46 @@ const AssetDetailModal: React.FC<AssetDetailModalProps> = ({ asset, onClose, onP
   }, [asset.generationType, params?.model]);
 
   const handleDownload = async () => {
-    try {
-      const response = await fetch(asset.url);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+    if (!asset.url) {
+      return;
+    }
+    const baseName = asset.name || 'download';
+    const extFromUrl = (() => {
+      try {
+        const clean = asset.url.split('?')[0];
+        const lastDot = clean.lastIndexOf('.');
+        if (lastDot > -1 && lastDot < clean.length - 1) {
+          return clean.substring(lastDot + 1);
+        }
+      } catch {}
+      return asset.type === 'video' ? 'mp4' : 'png';
+    })();
+    const fileName = baseName.toLowerCase().endsWith(`.${extFromUrl.toLowerCase()}`)
+      ? baseName
+      : `${baseName}.${extFromUrl}`;
+
+    if (asset.url.startsWith('blob:') || asset.url.startsWith('data:')) {
       const link = document.createElement('a');
-      link.href = url;
-      // 简单判断后缀
-      const ext = asset.type === 'video' ? 'mp4' : 'png';
-      link.download = `${asset.name || 'download'}.${ext}`;
+      link.href = asset.url;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      message.success('下载已开始');
+      return;
+    }
+
+    try {
+      const downloadUrl = await storageApi.getDownloadUrl(asset.url, fileName);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       message.success('下载已开始');
     } catch (error) {
-      console.error('Download failed:', error);
-      // 降级处理：直接在新窗口打开，不显示错误提示，因为通常是跨域问题导致的，新窗口打开可以正常下载
       window.open(asset.url, '_blank');
     }
   };

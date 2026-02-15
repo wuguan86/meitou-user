@@ -10,6 +10,7 @@ import * as generationAPI from '../../api/generation';
 import { uploadImage, uploadVideo } from '../../api/upload';
 import { promptRechargeForInsufficientBalance } from '../../api/index';
 import { getSiteCategoryByDomain } from '../../utils/domainValidator';
+import { storageApi } from '../../api/storage';
 
 interface ImageToVideoProps {
   onSelectAsset: (asset: AssetNode) => void;
@@ -66,6 +67,38 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
   const [addCharacterFromVideoName, setAddCharacterFromVideoName] = useState('');
   const [isSavingCharacterLoading, setIsSavingCharacterLoading] = useState(false);
   const [isAddingCharacterLoading, setIsAddingCharacterLoading] = useState(false);
+
+  const handlePreviewDownload = async () => {
+    if (!previewVideo?.url) {
+      return;
+    }
+    const base = (previewVideo.prompt || previewVideo.name || 'generated-video').trim();
+    const safeBase = base.replace(/[\\/:*?"<>|]/g, '_') || 'generated-video';
+    const ext = extractPreviewExtension(previewVideo.url);
+    const fileName = safeBase.toLowerCase().endsWith(`.${ext.toLowerCase()}`) ? safeBase : `${safeBase}.${ext}`;
+    try {
+      const downloadUrl = await storageApi.getDownloadUrl(previewVideo.url, fileName);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      message.success('下载已开始');
+    } catch (error) {
+      window.open(previewVideo.url, '_blank');
+    }
+  };
+
+  const extractPreviewExtension = (url: string) => {
+    const clean = url.split('?')[0];
+    const lastDot = clean.lastIndexOf('.');
+    if (lastDot > -1 && lastDot < clean.length - 1) {
+      return clean.substring(lastDot + 1);
+    }
+    return 'mp4';
+  };
 
   // Load characters from backend
   useEffect(() => {
@@ -2486,16 +2519,13 @@ const ImageToVideo: React.FC<ImageToVideoProps> = ({ onSelectAsset, onDeductPoin
                        <RefreshCw className="w-4 h-4" />
                        <span>重绘</span>
                    </button>
-                   <a 
-                       href={previewVideo.url} 
-                       download={`generated-video-${previewVideo.id}.mp4`}
-                       target="_blank"
-                       rel="noopener noreferrer"
+                   <button
+                       onClick={handlePreviewDownload}
                        className="flex items-center space-x-2 text-xs text-gray-400 hover:text-white transition-colors"
                    >
                        <Download className="w-4 h-4" />
                        <span>下载</span>
-                   </a>
+                   </button>
                </div>
                
                <button 

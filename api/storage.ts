@@ -2,6 +2,7 @@ import { request } from './index';
 
 export interface StorageApi {
   getFileUrl(key: string): Promise<string>;
+  getDownloadUrl(key: string, filename?: string): Promise<string>;
 }
 
 const isAliyunSignatureParam = (name: string) => {
@@ -69,6 +70,18 @@ export const storageApi: StorageApi = {
   getFileUrl: async (key: string) => {
     const normalizedKey = normalizeKeyForSigning(key);
     const url = await request<string>(`/app/storage/url?key=${encodeURIComponent(normalizedKey)}`, {
+      method: 'GET',
+    });
+    return url;
+  },
+  getDownloadUrl: async (key: string, filename?: string) => {
+    const normalizedKey = normalizeKeyForSigning(key);
+    const params = new URLSearchParams();
+    params.append('key', normalizedKey);
+    if (filename) {
+      params.append('filename', filename);
+    }
+    const url = await request<string>(`/app/storage/download?${params.toString()}`, {
       method: 'GET',
     });
     return url;
