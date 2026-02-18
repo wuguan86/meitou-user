@@ -3,6 +3,7 @@ import { X, Gem } from 'lucide-react';
 import { User } from '../../types';
 import PointsRechargePanel from './PointsRechargePanel';
 import MembershipPanel from './MembershipPanel';
+import { MembershipStatusResponse } from '../../api/membership';
 
 interface RechargeModalProps {
   isOpen: boolean;
@@ -10,9 +11,10 @@ interface RechargeModalProps {
   user: User;
   onUpdatePoints: (p: number) => void; // 新增积分（用于支付成功后）
   onUpdateUserBalance?: (balance: number) => void; // 更新总余额（用于刷新余额）
+  onRefreshMembership?: (status?: MembershipStatusResponse) => void; // 刷新会员状态
 }
 
-const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, onUpdatePoints, onUpdateUserBalance }) => {
+const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, onUpdatePoints, onUpdateUserBalance, onRefreshMembership }) => {
   const [activeTab, setActiveTab] = useState<'points' | 'membership'>('membership'); // Default to membership as per request emphasis
 
   // Reset tab when modal opens
@@ -117,6 +119,7 @@ const RechargeModal: React.FC<RechargeModalProps> = ({ isOpen, onClose, user, on
                 onUpdatePoints={onUpdatePoints}
                 onUpdateUserBalance={onUpdateUserBalance}
                 onClose={onClose}
+                onRefreshMembership={onRefreshMembership}
               />
             </div>
           )}

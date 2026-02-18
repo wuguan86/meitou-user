@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { message, QRCode } from 'antd';
-import { Check, Loader2, Gem, CreditCard, Wallet, Landmark, X, ShieldCheck } from 'lucide-react';
+import { message, QRCode, Modal, Input, Button } from 'antd';
+import { Check, Loader2, Gem, CreditCard, Wallet, Landmark, X, ShieldCheck, Minus, Plus, Ticket } from 'lucide-react';
 import { User } from '../../types';
 import { getMembershipPackages, MembershipPackage } from '../../api/membershipPackage';
 import { createMembershipOrder, getMembershipStatus, MembershipStatusResponse } from '../../api/membership';
 import { getRechargeConfig, queryOrder, RechargeConfigResponse, RechargeOrderResponse } from '../../api/recharge';
 import { getCurrentUser } from '../../api/auth';
+import { redeemCode } from '@/api/redemption';
 
 interface PlanFeature {
   text: string;
@@ -24,6 +25,7 @@ interface Plan {
   isPopular?: boolean;
   buttonText: string;
   nextMonthPrice?: number | string;
+  primaryColor?: string;
 }
 
 interface MembershipPanelProps {
@@ -31,15 +33,17 @@ interface MembershipPanelProps {
   onUpdatePoints: (p: number) => void;
   onUpdateUserBalance?: (balance: number) => void;
   onClose: () => void;
+  onRefreshMembership?: (status?: MembershipStatusResponse) => void;
 }
 
-const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints, onUpdateUserBalance, onClose }) => {
+const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints, onUpdateUserBalance, onClose, onRefreshMembership }) => {
   const [billingCycle, setBillingCycle] = useState<'yearly' | 'monthly'>('monthly');
   const [loading, setLoading] = useState(true);
   const [packages, setPackages] = useState<MembershipPackage[]>([]);
   const [config, setConfig] = useState<RechargeConfigResponse | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatusResponse | null>(null);
+  const [quantity, setQuantity] = useState<number | string>(3);
 
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [paymentType, setPaymentType] = useState<'wechat' | 'alipay' | 'bank_transfer'>('wechat');
@@ -47,6 +51,14 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
   const [currentOrder, setCurrentOrder] = useState<RechargeOrderResponse | null>(null);
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null);
   const [showBankInfo, setShowBankInfo] = useState(false);
+
+  // 兑换码相关
+  const [redeemModalVisible, setRedeemModalVisible] = useState(false);
+  const [redeemCodeInput, setRedeemCodeInput] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  // 错误提示弹窗
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -110,8 +122,47 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
     try {
       const status = await getMembershipStatus();
       setMembershipStatus(status);
+      
+      // 如果当前是包年/包月，且用户有更高级的订阅，可能需要调整默认选中
+      // 这里简单处理，保持用户选择
+      return status;
     } catch (e) {
+      console.error('Failed to load membership status:', e);
       setMembershipStatus(null);
+      return null;
+    }
+  };
+
+  const handleRedeem = async () => {
+    if (!redeemCodeInput.trim()) {
+      message.error('请输入兑换码');
+      return;
+    }
+    setRedeeming(true);
+    try {
+      const msg = await redeemCode(redeemCodeInput);
+      message.success(msg || '兑换成功');
+      setRedeemModalVisible(false);
+      setRedeemCodeInput('');
+      // 刷新数据
+      const status = await loadMembershipStatus();
+      if (onRefreshMembership && status) {
+        onRefreshMembership(status);
+      }
+      if (onUpdateUserBalance) {
+        // 简单刷新一下用户信息以获取最新积分余额
+        getCurrentUser().then(u => {
+            if (u) {
+                onUpdateUserBalance(u.balance);
+                onUpdatePoints(0); 
+            }
+        });
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || '兑换失败');
+      setErrorModalVisible(true);
+    } finally {
+      setRedeeming(false);
     }
   };
 
@@ -169,6 +220,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
       nextMonthPrice: getNextMonthPrice(pkg),
       discountBadge: pkg.badgeText,
       period: '/ 月',
+      primaryColor: pkg.primaryColor,
       buttonText: pkg.buttonText,
       features: features,
       isPopular: pkg.isRecommended
@@ -182,11 +234,15 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
 
   const currentAmount = useMemo(() => {
     if (!selectedPackage) return 0;
+    let price = 0;
     if (billingCycle === 'yearly') {
-      return Number((isOldUser ? selectedPackage.yearlyPrice : (selectedPackage.yearlyDiscountPrice || selectedPackage.yearlyPrice)) || 0);
+      price = Number((isOldUser ? selectedPackage.yearlyPrice : (selectedPackage.yearlyDiscountPrice || selectedPackage.yearlyPrice)) || 0);
+    } else {
+      price = Number((isOldUser ? selectedPackage.monthlyPrice : (selectedPackage.monthlyDiscountPrice || selectedPackage.monthlyPrice)) || 0);
     }
-    return Number((isOldUser ? selectedPackage.monthlyPrice : (selectedPackage.monthlyDiscountPrice || selectedPackage.monthlyPrice)) || 0);
-  }, [selectedPackage, billingCycle, isOldUser]);
+    const qty = typeof quantity === 'number' ? quantity : (Number(quantity) || 0);
+    return Number((price * qty).toFixed(2));
+  }, [selectedPackage, billingCycle, isOldUser, quantity]);
 
   const handleClose = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -218,16 +274,21 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
             const userInfo = await getCurrentUser();
             if (onUpdateUserBalance) {
               onUpdateUserBalance(userInfo.balance);
-            }
-            const delta = userInfo.balance - user.points;
-            if (delta !== 0) {
-              onUpdatePoints(delta);
+            } else {
+              const delta = userInfo.balance - user.points;
+              if (delta !== 0) {
+                onUpdatePoints(delta);
+              }
             }
           } catch (e) {
             console.error('刷新用户余额失败:', e);
           }
 
-          await loadMembershipStatus();
+          const status = await loadMembershipStatus();
+
+          if (onRefreshMembership && status) {
+            onRefreshMembership(status);
+          }
 
           message.success('支付成功！会员已开通/续费');
           handleClose();
@@ -267,6 +328,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
       const orderResponse = await createMembershipOrder({
         packageId: selectedPlan.packageId,
         billingCycle,
+        quantity: typeof quantity === 'number' ? quantity : (Number(quantity) || 1),
         paymentType
       });
       setCurrentOrder(orderResponse);
@@ -328,16 +390,22 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
       ) : (
         <>
           <div className="flex items-center justify-between mb-6 shrink-0">
-            <button className="group flex items-center space-x-2 bg-[#151923] border border-[#2cc2f5]/20 rounded-full px-4 py-1.5 hover:border-[#2cc2f5]/40 transition-all">
+            <button 
+              className="group flex items-center space-x-2 bg-[#151923] border border-[#2cc2f5]/20 rounded-full px-4 py-1.5 hover:border-[#2cc2f5]/40 transition-all"
+              onClick={() => setRedeemModalVisible(true)}
+            >
               <Gem className="w-3.5 h-3.5 text-[#2cc2f5]" />
               <span className="text-xs text-gray-400 font-medium group-hover:text-gray-300 transition-colors">
-                使用邀请码进行首次订阅，获得额外积分。 <span className="text-white font-bold underline decoration-1 underline-offset-2">立即填写 &gt;</span>
+                使用邀请码/兑换码，获得额外权益。 <span className="text-white font-bold underline decoration-1 underline-offset-2">立即填写 &gt;</span>
               </span>
             </button>
 
             <div className="bg-[#0d1121] p-1 rounded-full flex space-x-1 border border-white/5">
               <button
-                onClick={() => setBillingCycle('monthly')}
+                onClick={() => {
+                  setBillingCycle('monthly');
+                  setQuantity(3);
+                }}
                 className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
                   billingCycle === 'monthly'
                     ? 'bg-gradient-to-r from-[#2cc2f5] to-[#d946ef] text-white'
@@ -347,7 +415,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                 月付
               </button>
               <button
-                onClick={() => setBillingCycle('yearly')}
+                onClick={() => {
+                  setBillingCycle('yearly');
+                  setQuantity(3);
+                }}
                 className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
                   billingCycle === 'yearly'
                     ? 'bg-gradient-to-r from-[#2cc2f5] to-[#d946ef] text-white'
@@ -364,13 +435,28 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
               {plans.map((plan) => {
                 const isActiveOtherType = !!membershipStatus?.activeLevelCode && !membershipStatus.canSwitchType && membershipStatus.activeLevelCode !== plan.levelCode;
                 const isActiveSameType = !!membershipStatus?.activeLevelCode && !membershipStatus.canSwitchType && membershipStatus.activeLevelCode === plan.levelCode;
-                const buttonLabel = isActiveSameType ? '续费' : plan.buttonText;
+                
+                let buttonLabel = isActiveSameType ? '续费' : plan.buttonText;
+                let isButtonDisabled = isActiveOtherType;
+
+                // 免费版按钮逻辑特殊处理
+                if (plan.id === 'free') {
+                  const currentLevel = membershipStatus?.activeLevelCode || 'free';
+                  if (currentLevel === 'free') {
+                    buttonLabel = '当前套餐';
+                    isButtonDisabled = true;
+                  } else {
+                    buttonLabel = '当前不可用';
+                    isButtonDisabled = true;
+                  }
+                }
+
                 return (
                   <div
                     key={plan.packageId}
-                    onClick={() => !isActiveOtherType && setSelectedPlan(plan)}
+                    onClick={() => !isButtonDisabled && setSelectedPlan(plan)}
                     className={`flex flex-col p-5 rounded-2xl border transition-all duration-300 relative group ${
-                      !isActiveOtherType ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'
+                      !isButtonDisabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'
                     } ${
                       plan.isPopular
                         ? 'border-[#a855f7] bg-[#13161f] shadow-[0_0_20px_-5px_rgba(168,85,247,0.3)] z-10 scale-[1.02]'
@@ -426,14 +512,21 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                 e.stopPropagation();
                 setSelectedPlan(plan);
               }}
-              disabled={isActiveOtherType}
+              disabled={isButtonDisabled}
+              style={
+                !isButtonDisabled && plan.primaryColor
+                  ? { backgroundColor: plan.primaryColor, color: 'white', opacity: 0.8 }
+                  : {}
+              }
               className={`w-full py-2.5 rounded-lg text-sm font-bold transition-all mb-6 ${
-                plan.isPopular
-                  ? 'bg-gradient-to-r from-[#a855f7] to-[#d946ef] text-white hover:shadow-lg hover:shadow-purple-500/25'
+                !isButtonDisabled && plan.primaryColor
+                  ? 'hover:opacity-100 hover:shadow-lg'
+                  : plan.isPopular
+                  ? `bg-gradient-to-r from-[#a855f7] to-[#d946ef] text-white hover:shadow-lg hover:shadow-purple-500/25 ${!isButtonDisabled ? 'opacity-80 hover:opacity-100' : ''}`
                   : 'bg-[#2a3040] text-gray-300 hover:bg-[#353b4d] hover:text-white'
-              } ${isActiveOtherType ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${isButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {isActiveOtherType ? '到期后可购' : buttonLabel}
+              {plan.id !== 'free' && isButtonDisabled ? '到期后可购' : buttonLabel}
             </button>
 
             {/* 权益列表 */}
@@ -514,7 +607,78 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-8">
+                <div className="space-y-4 ml-12 mr-auto">
+                  <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">订阅时长</h4>
+                  <div className="flex items-center bg-[#0d1121] border border-white/10 rounded-xl p-1 w-fit shadow-inner">
+                    <button
+                      onClick={() => {
+                        const val = typeof quantity === 'number' ? quantity : (Number(quantity) || 1);
+                        setQuantity(Math.max(1, val - 1));
+                      }}
+                      disabled={Number(quantity) <= 1}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                        Number(quantity) <= 1 
+                          ? 'text-gray-700 cursor-not-allowed' 
+                          : 'text-gray-400 hover:text-white hover:bg-white/10 active:scale-95'
+                      }`}
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    
+                    <div className="flex items-center justify-center px-3 min-w-[70px]">
+                      <input
+                        type="text"
+                        value={quantity}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '') {
+                            setQuantity('');
+                            return;
+                          }
+                          // Only allow positive integers
+                          if (!/^\d+$/.test(val)) return;
+                          
+                          const numVal = parseInt(val);
+                          if (numVal > 20) {
+                            setQuantity(20);
+                          } else {
+                            setQuantity(numVal);
+                          }
+                        }}
+                        onBlur={() => {
+                          let val = typeof quantity === 'number' ? quantity : parseInt(quantity);
+                          if (isNaN(val) || val < 1) {
+                            val = 1;
+                          } else if (val > 20) {
+                            val = 20;
+                          }
+                          setQuantity(val);
+                        }}
+                        className="w-12 bg-transparent text-center font-black text-lg text-white outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                      <span className="text-xs font-bold text-gray-500 ml-1 mt-1">
+                        {billingCycle === 'yearly' ? '年' : '个月'}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const val = typeof quantity === 'number' ? quantity : (Number(quantity) || 1);
+                        setQuantity(Math.min(20, val + 1));
+                      }}
+                      disabled={Number(quantity) >= 20}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                        Number(quantity) >= 20 
+                          ? 'text-gray-700 cursor-not-allowed' 
+                          : 'text-gray-400 hover:text-white hover:bg-white/10 active:scale-95'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-6">
                   <div className="text-right">
                     <div className="text-[10px] font-bold text-gray-500 mb-1">实付金额</div>
                     <div className="flex items-baseline justify-end space-x-1">
@@ -526,7 +690,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                   {paymentType === 'bank_transfer' ? (
                     <button
                       onClick={() => setShowBankInfo(true)}
-                      className="h-14 px-10 rounded-2xl font-black text-sm tracking-widest bg-gradient-to-r from-[#eab308] to-[#ca8a04] text-white shadow-lg shadow-yellow-500/20 hover:scale-105 active:scale-95 transition-all"
+                      className="h-14 px-10 rounded-2xl font-black text-sm tracking-widest bg-gradient-to-r from-[#eab308] to-[#ca8a04] text-white shadow-lg shadow-yellow-500/20 hover:scale-105 active:scale-95 transition-all opacity-90 hover:opacity-100"
                     >
                       查看账户
                     </button>
@@ -537,7 +701,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                       className={`h-14 px-10 rounded-2xl font-black text-sm tracking-widest shadow-xl transition-all hover:scale-105 active:scale-95 ${
                         currentAmount <= 0 || !selectedPlan
                           ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                          : 'bg-gradient-to-r from-[#2cc2f5] to-[#f472b6] text-white shadow-[#2cc2f5]/20 hover:shadow-[#2cc2f5]/40'
+                          : 'bg-gradient-to-r from-[#2cc2f5] to-[#f472b6] text-white shadow-[#2cc2f5]/20 hover:shadow-[#2cc2f5]/40 opacity-90 hover:opacity-100'
                       }`}
                     >
                       立即购买
@@ -603,6 +767,78 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
           </div>
         </div>
       )}
+      {/* 兑换码弹窗 */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-slate-800">
+            <Ticket className="w-5 h-5 text-purple-600" />
+            <span>兑换权益</span>
+          </div>
+        }
+        open={redeemModalVisible}
+        onCancel={() => setRedeemModalVisible(false)}
+        footer={null}
+        centered
+        width={400}
+        styles={{ mask: { backdropFilter: 'blur(4px)' } }}
+      >
+        <div className="pt-4 pb-2">
+          <div className="mb-4">
+            <p className="text-slate-500 text-sm mb-2">请输入您的邀请码或兑换码：</p>
+            <Input
+              placeholder="请输入代码"
+              value={redeemCodeInput}
+              onChange={e => setRedeemCodeInput(e.target.value)}
+              size="large"
+              onPressEnter={handleRedeem}
+              className="font-mono"
+            />
+          </div>
+          <Button 
+            type="primary" 
+            block 
+            size="large" 
+            loading={redeeming}
+            onClick={handleRedeem}
+            className="bg-gradient-to-r from-blue-600 to-purple-600 border-none hover:opacity-90 h-10 font-bold"
+          >
+            立即兑换
+          </Button>
+        </div>
+      </Modal>
+
+      {/* 错误提示弹窗 */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-red-600">
+            <X className="w-5 h-5" />
+            <span className="font-bold">兑换失败</span>
+          </div>
+        }
+        open={errorModalVisible}
+        onCancel={() => setErrorModalVisible(false)}
+        footer={null}
+        centered
+        width={360}
+        styles={{ mask: { backdropFilter: 'blur(4px)' } }}
+      >
+        <div className="pt-6 pb-2 px-2 text-center">
+          <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <X className="w-6 h-6 text-red-500" />
+          </div>
+          <p className="text-slate-600 text-base mb-8 font-medium leading-relaxed">
+            {errorMessage}
+          </p>
+          <Button 
+            block 
+            size="large" 
+            onClick={() => setErrorModalVisible(false)}
+            className="h-11 font-bold bg-slate-100 hover:bg-slate-200 border-none text-slate-600 rounded-xl"
+          >
+            我知道了
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 };

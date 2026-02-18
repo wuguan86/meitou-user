@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { getCurrentUser, logout } from './api/auth';
 import { getCurrentSite } from './api/site';
+import { getMembershipStatus, MembershipStatusResponse } from './api/membership';
 import Sidebar from './components/Sidebar';
 import Home from './components/Home';
 import Assets from './components/Assets';
@@ -12,6 +13,7 @@ import TextToVideo from './components/Tools/TextToVideo';
 import ImageToImage from './components/Tools/ImageToImage';
 import ImageToVideo from './components/Tools/ImageToVideo';
 import VoiceClone from './components/Tools/VoiceClone';
+import PromptHelper from './components/PromptHelper';
 import Profile from './components/Profile';
 // fix: Corrected import path casing to consistently use 'Modals' to resolve compilation errors.
 import ProfileModal from './components/Modals/ProfileModal';
@@ -32,6 +34,7 @@ const App: React.FC = () => {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // 移动端菜单状态
   const [refreshProfileKey, setRefreshProfileKey] = useState(0); // 个人中心刷新key
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatusResponse | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   const getScrollContainer = useCallback(() => mainRef.current, []);
 
@@ -65,6 +68,14 @@ const App: React.FC = () => {
           company: userData.company,
           wechat: userData.wechat,
         }));
+        
+        // Fetch membership status
+        try {
+          const status = await getMembershipStatus();
+          setMembershipStatus(status);
+        } catch (e) {
+          console.error('Failed to fetch membership status:', e);
+        }
       } catch (error) {
         console.error('Failed to restore session:', error);
         localStorage.removeItem('app_token');
@@ -125,6 +136,19 @@ const App: React.FC = () => {
     setUser(prev => ({ ...prev, points: prev.points - points }));
   };
   
+  const handleRefreshMembership = async (status?: MembershipStatusResponse) => {
+    if (status) {
+      setMembershipStatus(status);
+      return;
+    }
+    try {
+      const newStatus = await getMembershipStatus();
+      setMembershipStatus(newStatus);
+    } catch (e) {
+      console.error('Failed to refresh membership status:', e);
+    }
+  };
+
   const openPublishModal = () => {
     if (selectedAsset) {
       setIsPublishing(true);
@@ -149,6 +173,7 @@ const App: React.FC = () => {
       case 'image-to-image': return <ImageToImage onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
       case 'image-to-video': return <ImageToVideo onSelectAsset={setSelectedAsset} onDeductPoints={handleDeductPoints} availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
       case 'voice-clone': return <VoiceClone availablePoints={user.points} onOpenRecharge={() => setIsRechargeOpen(true)} />;
+      case 'prompt-helper': return <PromptHelper availablePoints={user.points} onDeductPoints={handleDeductPoints} onOpenRecharge={() => setIsRechargeOpen(true)} />;
       case 'profile': return (
         <Profile 
           user={user} 
@@ -186,6 +211,7 @@ const App: React.FC = () => {
         onOpenRecharge={() => setIsRechargeOpen(true)}
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
+        membershipStatus={membershipStatus}
       />
       <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#0b0d17] lg:ml-0">
         <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8">
@@ -206,6 +232,7 @@ const App: React.FC = () => {
         user={user}
         onUpdatePoints={(newPoints) => setUser(p => ({ ...p, points: p.points + newPoints }))}
         onUpdateUserBalance={(balance) => setUser(p => ({ ...p, points: balance }))}
+        onRefreshMembership={handleRefreshMembership}
       />
       
       {selectedWork && (

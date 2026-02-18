@@ -17,11 +17,13 @@ import {
   Heart,
   Eye,
   MessageSquare,
-  X
+  X,
+  Wand2
 } from 'lucide-react';
 import { PageType, User } from '../types';
 import { getVisibleMenus, MenuConfig } from '../api/menu';
 import * as customerServiceAPI from '../api/customerService';
+import { getMembershipStatus, MembershipStatusResponse } from '../api/membership';
 import { getCurrentSite } from '../api/site';
 import { SecureImage } from './SecureImage';
 
@@ -34,11 +36,12 @@ interface SidebarProps {
   onOpenRecharge: () => void;
   isMobileOpen?: boolean; // 移动端是否打开
   onMobileClose?: () => void; // 移动端关闭回调
+  membershipStatus?: MembershipStatusResponse | null; // 会员状态
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   currentPage, onNavigate, user, onLogout, onOpenProfile, onOpenRecharge,
-  isMobileOpen = false, onMobileClose
+  isMobileOpen = false, onMobileClose, membershipStatus: propMembershipStatus
 }) => {
   const [toolsOpen, setToolsOpen] = useState(true);
   const [isCsHovered, setIsCsHovered] = useState(false);
@@ -48,6 +51,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [copyright, setCopyright] = useState('');
   const [logo, setLogo] = useState('');
   const [websiteName, setWebsiteName] = useState('');
+  const [localMembershipStatus, setLocalMembershipStatus] = useState<MembershipStatusResponse | null>(null);
+  
+  const membershipStatus = propMembershipStatus || localMembershipStatus;
 
   // 菜单代码到前端ID的映射
   const codeToIdMap: Record<string, PageType> = {
@@ -110,6 +116,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         if (config) {
           setCsConfig(config);
         }
+
+        // 加载会员状态
+        try {
+          const status = await getMembershipStatus();
+          setLocalMembershipStatus(status);
+        } catch (err) {
+          console.error('获取会员状态失败:', err);
+        }
       } catch (error) {
         console.error('加载配置失败:', error);
         // 如果加载失败，使用默认菜单
@@ -122,6 +136,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { id: 'home', name: '首页', icon: Home },
     { id: 'assets', name: '资产', icon: FileBox },
+    { id: 'prompt-helper', name: '提示词助手', icon: Wand2 },
     ...(manualUrl ? [{ id: 'manual', name: '使用手册', icon: BookOpen, external: true, url: manualUrl }] : []),
   ];
 
@@ -153,6 +168,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (onMobileClose) {
       onMobileClose();
     }
+  };
+
+  // 格式化日期 YY-MM-DD
+  const formatExpiryDate = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   return (
@@ -273,7 +298,26 @@ const Sidebar: React.FC<SidebarProps> = ({
               />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user.name}</p>
+              <div className="flex items-center gap-2 mb-0.5">
+                <p className="text-sm font-bold text-white truncate max-w-[80px]" title={user.name}>{user.name}</p>
+                {membershipStatus && (
+                  <span 
+                    className="text-[10px] px-1.5 py-0.5 rounded border scale-90 origin-left whitespace-nowrap font-bold"
+                    style={{ 
+                      color: membershipStatus.activePrimaryColor || '#94a3b8',
+                      borderColor: membershipStatus.activePrimaryColor || '#94a3b8',
+                      backgroundColor: `${membershipStatus.activePrimaryColor || '#94a3b8'}50`
+                    }}
+                  >
+                    {membershipStatus.activePackageName || '免费版'}
+                  </span>
+                )}
+              </div>
+              {membershipStatus?.activeEndAt && (
+                <p className="text-[10px] text-gray-500 font-medium">
+                  到期时间：{formatExpiryDate(membershipStatus.activeEndAt)}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center justify-between">

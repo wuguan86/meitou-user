@@ -201,6 +201,7 @@ export const textToVideo = async (request: TextToVideoRequest): Promise<VideoGen
   return await post<VideoGenerationResponse>('/app/generation/text-to-video', request);
 };
 
+
 /**
  * 图生视频
  * @param request 图生视频请求参数

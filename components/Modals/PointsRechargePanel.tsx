@@ -371,8 +371,8 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
                             <Check className="w-3.5 h-3.5 text-[#00c087]" />
                             <span className="text-[10px] font-bold text-gray-400">即时到账</span>
                           </div>
-                          <div className="flex items-start space-x-2">
-                            <Info className="w-3.5 h-3.5 text-[#eab308] shrink-0 mt-0.5" />
+                          <div className="flex items-center space-x-2">
+                            <Info className="w-3.5 h-3.5 text-[#eab308] shrink-0" />
                             <span className="text-[10px] text-gray-500 leading-tight">
                               算力自充值之日起约6个月内有效，请尽快使用。
                             </span>

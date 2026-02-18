@@ -7,12 +7,15 @@ export interface MembershipStatusResponse {
   activeLevelCode?: string;
   activeBillingCycle?: string;
   activeEndAt?: string;
+  activePackageName?: string;
+  activePrimaryColor?: string;
   canSwitchType: boolean;
 }
 
 export interface MembershipOrderCreateRequest {
   packageId: number;
   billingCycle: 'monthly' | 'yearly';
+  quantity?: number;
   paymentType: 'wechat' | 'alipay';
 }
 

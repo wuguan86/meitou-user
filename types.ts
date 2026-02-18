@@ -1,5 +1,5 @@
 
-export type PageType = 'home' | 'assets' | 'image-analysis' | 'text-to-image' | 'text-to-video' | 'image-to-image' | 'image-to-video' | 'voice-clone' | 'profile';
+export type PageType = 'home' | 'assets' | 'prompt-helper' | 'image-analysis' | 'text-to-image' | 'text-to-video' | 'image-to-image' | 'image-to-video' | 'voice-clone' | 'profile';
 
 export interface AssetNode {
   id: string;

@@ -6,6 +6,7 @@ import { PageType, Inspiration, AssetNode, Site } from '../types';
 import { getActiveAds, MarketingAd } from '../api/marketing';
 import * as publishAPI from '../api/publish';
 import RichTextModal from './Modals/RichTextModal';
+import PopupModal from './Modals/PopupModal';
 import { SecureImage } from './SecureImage';
 import { prefetchSignedUrls } from '../hooks/useSignedUrl';
 
@@ -438,6 +439,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate, onSelectWork, userId, siteConfi
 
   return (
     <div className="space-y-14 pb-20">
+      <PopupModal />
       {/* Auto Carousel Banner */}
       <section className="relative h-[16rem] sm:h-[20rem] lg:h-[22rem] rounded-2xl sm:rounded-[2.5rem] overflow-hidden group shadow-2xl">
         {slides.length > 0 && !loadingAds ? (
