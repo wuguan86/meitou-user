@@ -319,6 +319,7 @@ export const optimizePrompt = async (
   options?: {
     model?: string;
     systemPrompt?: string;
+    images?: string[];
   }
 ) => {
   try {
@@ -335,16 +336,18 @@ export const optimizePrompt = async (
 
     const baseUrl = getApiBaseUrl();
     
-    const response = await fetch(`${baseUrl}/app/generation/prompt-optimize`, {
+    // Use the new PromptOptimizeController endpoint
+    const response = await fetch(`${baseUrl}/app/prompt-optimize/optimize`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         model: options?.model || 'gpt-4o-mini',
         stream: true,
+        images: options?.images || [],
         messages: [
           { 
             role: 'system', 
-            content: options?.systemPrompt || '你是一位精通AI绘画的提示词工程师。请将用户的提示词优化为一段高质量的中文提示词，加入更多关于光影、风格、构图和氛围的细节描述。\n\n重要规则：\n1. 直接返回优化后的纯文本内容。\n2. 严禁输出JSON格式。\n3. 严禁包含Markdown代码块。\n4. 不要包含任何解释性文字。' 
+            content: options?.systemPrompt || '你是一位精通AI绘画的提示词工程师。请将用户的提示词优化为一段高质量的中文提示词，加入更多关于光影、风格、构图和氛围的细节描述。\n\n重要规则：\n1. 直接返回优化后的纯文本内容，不要包含任何解释、前缀或Markdown格式。\n2. 确保提示词结构清晰，包含：主体描述 + 环境背景 + 艺术风格 + 镜头视角 + 光影效果 + 细节修饰。\n3. 使用优美的形容词和专业的艺术术语。' 
           },
           { 
             role: 'user', 

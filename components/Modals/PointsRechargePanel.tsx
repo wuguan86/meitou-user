@@ -38,6 +38,8 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
   const [currentOrder, setCurrentOrder] = useState<RechargeOrderResponse | null>(null);
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null);
   const [showBankInfo, setShowBankInfo] = useState(false); // 是否显示对公账户信息
+  const [isSuccess, setIsSuccess] = useState(false); // 是否支付成功
+  const [isFailed, setIsFailed] = useState(false); // 是否支付失败
   
   // 轮询相关
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -140,11 +142,23 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
       pollIntervalRef.current = null;
     }
     setIsPaying(false);
+    setIsSuccess(false);
+    setIsFailed(false);
     setCurrentOrder(null);
     setPaymentQrCode(null);
     setShowBankInfo(false);
     onClose();
   }, [onClose]);
+
+  // 支付成功后自动关闭
+  useEffect(() => {
+    if (isSuccess) {
+      const timer = setTimeout(() => {
+        handleClose();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSuccess, handleClose]);
   
   // 开始轮询订单状态
   const startPolling = (orderNo: string) => {
@@ -169,8 +183,8 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
           // 显示成功提示
           message.success(`支付成功！已充值 ${order.points} 算力`);
           
-          // 关闭弹窗
-          handleClose();
+          // 触发成功动画，稍后自动关闭
+          setIsSuccess(true);
         } else if (order.status === 'failed' || order.status === 'cancelled') {
           // 支付失败或取消
           if (pollIntervalRef.current) {
@@ -179,9 +193,7 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
           }
           
           message.error(`订单${order.status === 'failed' ? '支付失败' : '已取消'}`);
-          setIsPaying(false);
-          setCurrentOrder(null);
-          setPaymentQrCode(null);
+          setIsFailed(true);
         }
       } catch (error) {
         console.error('查询订单状态失败:', error);
@@ -211,6 +223,10 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
     if (selectedOption === 0) {
       if (isNaN(amount) || amount < minAmount) {
         message.warning(`自定义金额最低${minAmount}元起充，且必须为整数。`);
+        return;
+      }
+      if (amount > 50000) {
+        message.warning('超过50,000，请联系客服进行对公转账');
         return;
       }
     }
@@ -302,12 +318,78 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
 
           {/* Main Content Area */}
           <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 -mr-2">
-            {isPaying && paymentQrCode ? (
-              <div className="flex flex-col items-center justify-center h-full space-y-6">
-                <div className="bg-white p-6 rounded-3xl shadow-2xl shadow-black/50">
-                  <QRCode value={paymentQrCode} size={200} />
+            {isSuccess ? (
+              <div className="flex flex-col items-center justify-center h-full space-y-8">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-green-500 blur-2xl opacity-20 animate-pulse"></div>
+                  <div className="relative w-24 h-24 bg-gradient-to-tr from-green-400 to-green-600 rounded-full flex items-center justify-center shadow-lg shadow-green-500/30">
+                    <Check className="w-12 h-12 text-white animate-bounce" strokeWidth={4} />
+                  </div>
                 </div>
-                <div className="text-center space-y-2">
+                <div className="text-center space-y-3">
+                  <h3 className="text-2xl font-black text-white tracking-tight">支付成功</h3>
+                  <p className="text-sm text-gray-400 font-medium">
+                    已成功充值 <span className="text-green-400 font-bold text-lg mx-1">{currentOrder?.points}</span> 算力
+                  </p>
+                </div>
+                <button 
+                  onClick={handleClose}
+                  className="px-8 py-3 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold shadow-lg shadow-green-500/30 hover:shadow-green-500/50 hover:scale-105 transition-all"
+                >
+                  支付完成
+                </button>
+              </div>
+            ) : isFailed ? (
+              <div className="flex flex-col items-center justify-center h-full space-y-8 animate-in fade-in zoom-in duration-300">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-red-500 blur-2xl opacity-20 animate-pulse"></div>
+                  <div className="relative w-24 h-24 bg-gradient-to-tr from-red-400 to-red-600 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30">
+                    <X className="w-12 h-12 text-white" strokeWidth={4} />
+                  </div>
+                </div>
+                <div className="text-center space-y-3">
+                  <h3 className="text-2xl font-black text-white tracking-tight">支付失败</h3>
+                  <p className="text-sm text-gray-400 font-medium max-w-[200px]">
+                    订单支付遇到问题，请尝试刷新或重新发起支付
+                  </p>
+                </div>
+                <div className="flex space-x-4">
+                  <button 
+                    onClick={() => {
+                      setIsFailed(false);
+                      setIsPaying(false);
+                      setCurrentOrder(null);
+                      setPaymentQrCode(null);
+                    }}
+                    className="px-6 py-2 rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors text-xs font-bold"
+                  >
+                    关闭面板
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setIsFailed(false);
+                      setIsPaying(false);
+                      setCurrentOrder(null);
+                      setPaymentQrCode(null);
+                      // 可以在这里保留选项以便用户重试，目前只是回到选择界面
+                    }}
+                    className="px-6 py-2 rounded-full bg-red-500/10 border border-red-500/50 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors text-xs font-bold"
+                  >
+                    重新尝试
+                  </button>
+                </div>
+              </div>
+            ) : isPaying && paymentQrCode ? (
+              <div className="flex flex-col items-center justify-center h-full space-y-6">
+                <div className="bg-white p-6 rounded-3xl shadow-2xl shadow-black/50 relative">
+                  <QRCode value={paymentQrCode} size={200} />
+                  <div className="absolute -bottom-8 left-0 right-0 text-center">
+                    <span className="text-xs font-bold text-[#2cc2f5] animate-pulse">
+                      支付确认中...
+                    </span>
+                  </div>
+                </div>
+                <div className="text-center space-y-2 pt-4">
                   <div className="text-lg font-black text-white">请使用{paymentType === 'wechat' ? '微信' : '支付宝'}扫码支付</div>
                   <div className="text-sm text-gray-400 font-mono">¥ {currentAmount}</div>
                 </div>
@@ -388,8 +470,8 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
                         <div className="flex-1 flex flex-col items-center justify-center">
                           {selectedOption === 0 ? (
                             <>
-                              <div className="relative w-full">
-                                <span className="absolute left-1/2 -translate-x-[60px] top-1/2 -translate-y-1/2 text-2xl font-black text-gray-500">¥</span>
+                              <div className="flex items-baseline justify-center w-full space-x-1">
+                                <span className="text-2xl font-black text-gray-500">¥</span>
                                 <input 
                                   type="text" 
                                   value={customAmount}
@@ -397,18 +479,21 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
                                   onBlur={handleCustomBlur}
                                   placeholder="0"
                                   disabled={isPaying}
-                                  className="w-full bg-transparent text-center text-4xl font-black text-white outline-none placeholder:text-gray-700"
+                                  className="bg-transparent text-left text-4xl font-black text-white outline-none placeholder:text-gray-700"
+                                  style={{ width: `${Math.max(1, customAmount.length)}ch` }}
                                   autoFocus
                                 />
                               </div>
                               <div className={`mt-2 text-[10px] font-bold transition-all duration-300 ${
-                                customAmount && parseInt(customAmount) < minAmount 
+                                (customAmount && parseInt(customAmount) < minAmount) || (customAmount && parseInt(customAmount) > 50000)
                                   ? 'text-red-500 animate-pulse' 
                                   : 'text-gray-500'
                               }`}>
                                 {customAmount && parseInt(customAmount) < minAmount 
                                   ? `最低充值金额不小于${minAmount}元`
-                                  : `最低充值 ${minAmount} 元`
+                                  : (customAmount && parseInt(customAmount) > 50000)
+                                    ? '超过50,000，请联系客服进行对公转账'
+                                    : `最低充值 ${minAmount} 元`
                                 }
                               </div>
                             </>
@@ -511,9 +596,9 @@ const PointsRechargePanel: React.FC<PointsRechargePanelProps> = ({
                   ) : (
                     <button
                       onClick={handlePay}
-                      disabled={isPaying || currentAmount <= 0}
+                      disabled={isPaying || currentAmount <= 0 || (selectedOption === 0 && currentAmount > 50000)}
                       className={`h-14 px-10 rounded-2xl font-black text-sm tracking-widest shadow-xl transition-all hover:scale-105 active:scale-95 ${
-                        isPaying || currentAmount <= 0
+                        isPaying || currentAmount <= 0 || (selectedOption === 0 && currentAmount > 50000)
                           ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
                           : 'bg-gradient-to-r from-[#2cc2f5] to-[#f472b6] text-white shadow-[#2cc2f5]/20 hover:shadow-[#2cc2f5]/40'
                       }`}

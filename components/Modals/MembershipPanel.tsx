@@ -172,8 +172,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
     if (pkg.levelCode === 'free') return 0;
     
     if (billingCycle === 'yearly') {
-      const yearlyTotal = (isOldUser ? pkg.yearlyPrice : (pkg.yearlyDiscountPrice || pkg.yearlyPrice)) || 0;
-      return Number((yearlyTotal / 12).toFixed(1)); // 保留一位小数
+      return (isOldUser ? pkg.yearlyPrice : (pkg.yearlyDiscountPrice || pkg.yearlyPrice)) || 0;
     } else {
       return (isOldUser ? pkg.monthlyPrice : (pkg.monthlyDiscountPrice || pkg.monthlyPrice)) || 0;
     }
@@ -186,9 +185,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
     if (billingCycle === 'monthly' && pkg.monthlyDiscountPrice && pkg.monthlyPrice && pkg.monthlyDiscountPrice < pkg.monthlyPrice) {
       return pkg.monthlyPrice;
     }
-    // 如果是年付且有优惠价，则下一年（换算成月）价格为原价/12
+    // 如果是年付且有优惠价，显示年付原价
     if (billingCycle === 'yearly' && pkg.yearlyDiscountPrice && pkg.yearlyPrice && pkg.yearlyDiscountPrice < pkg.yearlyPrice) {
-      return Number((pkg.yearlyPrice / 12).toFixed(1));
+      return pkg.yearlyPrice;
     }
     return undefined;
   };
@@ -219,7 +218,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
       price: getDisplayPrice(pkg),
       nextMonthPrice: getNextMonthPrice(pkg),
       discountBadge: pkg.badgeText,
-      period: '/ 月',
+      period: billingCycle === 'yearly' ? '/ 年' : '/ 月',
       primaryColor: pkg.primaryColor,
       buttonText: pkg.buttonText,
       features: features,
@@ -451,6 +450,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                   }
                 }
 
+                const isSelected = selectedPlan?.packageId === plan.packageId;
+                const shouldHighlight = isSelected;
+
                 return (
                   <div
                     key={plan.packageId}
@@ -458,21 +460,22 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
                     className={`flex flex-col p-5 rounded-2xl border transition-all duration-300 relative group ${
                       !isButtonDisabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'
                     } ${
-                      plan.isPopular
+                      shouldHighlight
                         ? 'border-[#a855f7] bg-[#13161f] shadow-[0_0_20px_-5px_rgba(168,85,247,0.3)] z-10 scale-[1.02]'
                         : 'border-white/5 bg-[#13161f] hover:border-white/10 hover:bg-[#1a1e29]'
-                    } ${selectedPlan?.packageId === plan.packageId ? 'ring-1 ring-[#2cc2f5]/40' : ''}`}
+                    }`}
                   >
-            {/* 旗舰版特殊标记 */}
-            {plan.isPopular && (
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-[#a855f7] text-[10px] font-black px-3 py-0.5 rounded-full tracking-wider shadow-lg z-20 whitespace-nowrap">
-                超值之选
-              </div>
-            )}
 
             {/* 头部信息 */}
             <div className="text-center mb-4 mt-2">
-              <h3 className="text-base font-bold text-white mb-2">{plan.name}</h3>
+              <div className="relative inline-block">
+                <h3 className="text-base font-bold text-white mb-2">{plan.name}</h3>
+                {plan.isPopular && (
+                  <div className="absolute -top-3 -right-[4.5rem] bg-white text-[#a855f7] text-[9px] font-black px-2 py-0.5 rounded-full tracking-wider shadow-lg whitespace-nowrap transform scale-90 origin-left">
+                    超值之选
+                  </div>
+                )}
+              </div>
               <div className="h-6 flex items-center justify-center">
                 {plan.discountBadge && (
                   <div className="bg-white/10 text-white text-[10px] font-bold px-2 py-0.5 rounded flex items-center">
@@ -500,7 +503,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
               <div className="h-4 flex items-center justify-center">
                 {plan.nextMonthPrice && (
                   <p className="text-[10px] text-gray-500 font-medium">
-                    下个月续费金额: ￥{plan.nextMonthPrice}
+                    {billingCycle === 'yearly' ? '次年续费金额' : '下个月续费金额'}: ￥{plan.nextMonthPrice}
                   </p>
                 )}
               </div>
@@ -515,16 +518,26 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ user, onUpdatePoints,
               disabled={isButtonDisabled}
               style={
                 !isButtonDisabled && plan.primaryColor
-                  ? { backgroundColor: plan.primaryColor, color: 'white', opacity: 0.8 }
+                  ? {
+                      backgroundColor: isSelected ? plan.primaryColor : `${plan.primaryColor}1A`,
+                      color: isSelected ? '#ffffff' : plan.primaryColor,
+                      boxShadow: isSelected ? `0 4px 20px -5px ${plan.primaryColor}80` : 'none'
+                    }
                   : {}
               }
               className={`w-full py-2.5 rounded-lg text-sm font-bold transition-all mb-6 ${
-                !isButtonDisabled && plan.primaryColor
-                  ? 'hover:opacity-100 hover:shadow-lg'
-                  : plan.isPopular
-                  ? `bg-gradient-to-r from-[#a855f7] to-[#d946ef] text-white hover:shadow-lg hover:shadow-purple-500/25 ${!isButtonDisabled ? 'opacity-80 hover:opacity-100' : ''}`
-                  : 'bg-[#2a3040] text-gray-300 hover:bg-[#353b4d] hover:text-white'
-              } ${isButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                isButtonDisabled
+                  ? 'bg-[#2a3040] text-gray-500 cursor-not-allowed opacity-50'
+                  : !plan.primaryColor
+                  ? plan.isPopular
+                    ? isSelected
+                      ? 'bg-gradient-to-r from-[#a855f7] to-[#d946ef] text-white shadow-lg shadow-purple-500/40'
+                      : 'bg-[#a855f7]/10 text-[#d946ef] hover:bg-[#a855f7]/20'
+                    : isSelected
+                    ? 'bg-[#2cc2f5] text-white shadow-lg shadow-[#2cc2f5]/40'
+                    : 'bg-[#2cc2f5]/10 text-[#2cc2f5] hover:bg-[#2cc2f5]/20'
+                  : 'hover:brightness-110'
+              }`}
             >
               {plan.id !== 'free' && isButtonDisabled ? '到期后可购' : buttonLabel}
             </button>

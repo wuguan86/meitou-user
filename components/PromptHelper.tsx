@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Wand2, Copy, RefreshCw, ChevronDown, Check, Sparkles, Image as ImageIcon, Video, MonitorPlay, Film, Gem, Type, Layers, PlaySquare, Mic2, User, Camera, Hash, Sun, ZoomIn, SlidersHorizontal } from 'lucide-react';
-import { message, Button, Input, Popover, Spin, Card, Tag, Tooltip } from 'antd';
+import { MessageSquare, Wand2, Copy, RefreshCw, ChevronDown, Check, Sparkles, Image as ImageIcon, Video, MonitorPlay, Film, Gem, Type, Layers, PlaySquare, Mic2, User, Camera, Hash, Sun, ZoomIn, SlidersHorizontal, FolderOpen, Upload as UploadIcon } from 'lucide-react';
+import { message, Button, Input, Popover, Spin, Card, Tag, Tooltip, Upload } from 'antd';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getPromptHelperConfig, PromptHelperConfig } from '../api/promptHelper';
 import { optimizePrompt } from '../api/generation';
+import { uploadImage } from '../api/upload';
+import AssetPickerModal from './Modals/AssetPickerModal';
+import { AssetNode } from '../types';
 
 const { TextArea } = Input;
 
@@ -36,12 +40,58 @@ const PromptHelper: React.FC<{
   const [mainPrompt, setMainPrompt] = useState('');
   const [optimizedPrompt, setOptimizedPrompt] = useState('');
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [images, setImages] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [showAssetPicker, setShowAssetPicker] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadConfig();
   }, []);
+
+  // Update images state when task type changes if needed, but keeping them might be fine
+  useEffect(() => {
+    if (taskType === 'txt2img' || taskType === 'txt2video') {
+      setImages([]);
+    }
+  }, [taskType]);
+
+  const handleAssetSelect = (asset: AssetNode) => {
+    if (images.length >= 3) {
+      message.warning('最多上传3张参考图');
+      return;
+    }
+    if (asset.type !== 'folder' && asset.url) {
+      setImages(prev => [...prev, asset.url!]);
+      setShowAssetPicker(false);
+    }
+  };
+
+  const handleUpload = async (file: File) => {
+    if (images.length >= 3) {
+      message.warning('最多上传3张参考图');
+      return Upload.LIST_IGNORE;
+    }
+    
+    setUploading(true);
+    try {
+      // Assuming uploadImage returns the URL string
+      const url = await uploadImage(file);
+      setImages(prev => [...prev, url]);
+      message.success('上传成功');
+    } catch (error) {
+      console.error('Upload failed:', error);
+      message.error('上传失败');
+    } finally {
+      setUploading(false);
+    }
+    return Upload.LIST_IGNORE; // Prevent default upload behavior
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
 
   const loadConfig = async () => {
     setLoadingConfig(true);
@@ -59,9 +109,23 @@ const PromptHelper: React.FC<{
   const handleSelectEffect = (type: EnhancementType) => {
     // Insert placeholder tag into main prompt
     const tag = `{${TYPE_CONFIG[type].label}}`;
+    
     setMainPrompt(prev => {
-      // Append to end or insert at cursor? For simplicity, append with space
-      return prev ? `${prev} ${tag}` : tag;
+      // Check if tag exists to toggle
+      if (prev.includes(tag)) {
+        // Remove tag
+        // Try to remove " {Tag}" first (leading space), then "{Tag}"
+        if (prev.includes(` ${tag}`)) {
+          return prev.replace(` ${tag}`, '');
+        } else if (prev.includes(`${tag} `)) {
+          return prev.replace(`${tag} `, '');
+        } else {
+          return prev.replace(tag, '');
+        }
+      } else {
+        // Add tag
+        return prev ? `${prev} ${tag}` : tag;
+      }
     });
 
     // Move cursor to the end after state update
@@ -187,7 +251,8 @@ ${knowledgeBase}
       },
       {
         model: 'gpt-4o-mini', // or 'gpt-3.5-turbo'
-        systemPrompt: systemPrompt
+        systemPrompt: systemPrompt,
+        images: images // Pass uploaded images
       }
     );
   };
@@ -281,6 +346,64 @@ ${knowledgeBase}
               </div>
             </div>
 
+            {/* Image Upload Section for Image-to-Image/Video */}
+            {(taskType === 'img2img' || taskType === 'img2video') && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest">上传参考图片</label>
+                  <button 
+                    onClick={() => setShowAssetPicker(true)} 
+                    className="text-[12px] text-[#ff2e8c] flex items-center space-x-1 hover:text-[#ff2e8c]/80 transition-colors"
+                  >
+                     <FolderOpen className="w-3.5 h-3.5" />
+                     <span>从资产选择</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  {[0, 1, 2].map((idx) => {
+                    const img = images[idx];
+                    return (
+                      <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-white/10 bg-black/20 group">
+                        {img ? (
+                          <>
+                            <img src={img} alt={`ref-${idx}`} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <button 
+                                onClick={() => handleRemoveImage(idx)}
+                                className="p-1.5 text-white hover:text-red-400 transition-colors bg-white/10 rounded-lg hover:bg-white/20 backdrop-blur-sm"
+                              >
+                                <DeleteOutlined style={{ fontSize: '14px' }} />
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <Upload
+                            showUploadList={false}
+                            beforeUpload={handleUpload as any}
+                            accept="image/*"
+                            disabled={uploading}
+                            className="absolute inset-0 w-full h-full block [&>.ant-upload]:w-full [&>.ant-upload]:h-full [&>.ant-upload]:block"
+                            openFileDialogOnClick={!uploading}
+                          >
+                             <div className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-slate-500 hover:text-cyan-400 hover:bg-white/5 transition-all">
+                                {uploading && images.length === idx ? (
+                                   <Spin size="small" />
+                                ) : (
+                                   <>
+                                     <UploadIcon className="w-5 h-5 mb-2 opacity-50" />
+                                     <span className="text-xs font-medium">图{idx + 1}</span>
+                                   </>
+                                )}
+                             </div>
+                          </Upload>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Core Creativity Input */}
             <div className="space-y-3">
               <label className="text-[10px] text-gray-600 font-black uppercase tracking-widest">输入你的核心创意</label>
@@ -319,25 +442,37 @@ ${knowledgeBase}
                       <div className="bg-[#1e293b] border border-white/10 rounded-xl p-1.5 w-52 shadow-2xl">
                         {Object.entries(TYPE_CONFIG)
                           .filter(([_, conf]) => !config || (config && config[conf.configKey]))
-                          .map(([key, configItem]) => (
-                          <div
-                            key={key}
-                            className="group flex items-center gap-3 px-3 py-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
-                            onClick={() => handleSelectEffect(key as EnhancementType)}
-                          >
-                            <div className={`text-slate-400 group-hover:text-${configItem.color}-400 transition-colors`}>
-                              {configItem.icon}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className={`text-xs font-black text-slate-200 group-hover:text-${configItem.color}-400 transition-colors`}>
-                                {configItem.label}
-                              </span>
-                              <span className="text-[10px] text-slate-500 font-medium scale-90 origin-left">
-                                {configItem.description}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                          .map(([key, configItem]) => {
+                            const isSelected = mainPrompt.includes(`{${configItem.label}}`);
+                            return (
+                              <div
+                                key={key}
+                                className={`group flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${
+                                  isSelected 
+                                    ? 'bg-white/5' 
+                                    : ''
+                                }`}
+                                onClick={() => handleSelectEffect(key as EnhancementType)}
+                              >
+                                <div className={`${isSelected ? 'text-cyan-400' : 'text-slate-400'} transition-colors`}>
+                                  {configItem.icon}
+                                </div>
+                                <div className="flex flex-col flex-1">
+                                  <span className={`text-xs font-black ${isSelected ? 'text-cyan-400' : 'text-slate-200'} transition-colors`}>
+                                    {configItem.label}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 font-medium scale-90 origin-left">
+                                    {configItem.description}
+                                  </span>
+                                </div>
+                                {isSelected && (
+                                  <div className="text-cyan-400">
+                                    <Check size={14} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         {config && Object.values(TYPE_CONFIG).every(conf => !config[conf.configKey]) && (
                           <div className="px-3 py-2 text-xs text-slate-500 text-center">
                             暂无可用效果
@@ -432,6 +567,13 @@ ${knowledgeBase}
         </div>
       </div>
       
+      <AssetPickerModal
+        isOpen={showAssetPicker}
+        onClose={() => setShowAssetPicker(false)}
+        onSelect={handleAssetSelect}
+        filterType="image"
+      />
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
