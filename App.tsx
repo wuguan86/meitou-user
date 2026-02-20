@@ -118,13 +118,20 @@ const App: React.FC = () => {
     return () => window.removeEventListener('app:open-recharge', handler);
   }, []);
 
-  const handleLoginSuccess = (userData: Partial<User>) => {
+  const handleLoginSuccess = async (userData: Partial<User>) => {
     setUser(prev => ({ ...prev, ...userData, isLoggedIn: true }));
+    try {
+      const status = await getMembershipStatus();
+      setMembershipStatus(status);
+    } catch (e) {
+      console.error('Failed to fetch membership status on login:', e);
+    }
   };
 
   const handleLogout = () => {
     logout();
     setUser(prev => ({ ...prev, isLoggedIn: false }));
+    setMembershipStatus(null);
     setCurrentPage('home');
   };
 

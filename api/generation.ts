@@ -341,7 +341,7 @@ export const optimizePrompt = async (
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: options?.model || 'gpt-4o-mini',
+        model: options?.model, // Let backend choose default model if not provided
         stream: true,
         images: options?.images || [],
         messages: [

@@ -304,9 +304,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <span 
                     className="text-[10px] px-1.5 py-0.5 rounded border scale-90 origin-left whitespace-nowrap font-bold"
                     style={{ 
-                      color: membershipStatus.activePrimaryColor || '#94a3b8',
+                      color: '#ffffff',
                       borderColor: membershipStatus.activePrimaryColor || '#94a3b8',
-                      backgroundColor: `${membershipStatus.activePrimaryColor || '#94a3b8'}50`
+                      backgroundColor: membershipStatus.activePrimaryColor || '#94a3b8'
                     }}
                   >
                     {membershipStatus.activePackageName || '免费版'}

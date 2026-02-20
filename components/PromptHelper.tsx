@@ -196,7 +196,7 @@ ${knowledgeBase}
 3. 输出结果必须是纯中文提示词。
 4. 使用逗号分隔关键词。
 5. 保持画面风格统一。
-6. 直接输出最终提示词文本，严禁输出JSON格式，严禁包含 "prompt" 或 "size" 等字段。不要包含任何解释或前缀。`;
+6. 直接输出最终提示词文本，严禁输出JSON格式，严禁Markdown代码块，严禁包含 "prompt" 或 "size" 等字段。不要包含任何解释或前缀。只返回优化后的提示词内容本身。`;
 
     let fullResponse = '';
 
@@ -243,14 +243,27 @@ ${knowledgeBase}
                 }
             } catch (e) {
                 console.warn('Failed to parse optimization result JSON, falling back to raw text', e);
-                setOptimizedPrompt(trimmed);
+                // Try regex extraction for "prompt" field as a last resort (handles invalid JSON with newlines)
+                const match = trimmed.match(/"prompt"\s*:\s*"([\s\S]*?)"(?=\s*[,}])/);
+                if (match && match[1]) {
+                    // Unescape standard JSON escapes
+                    let content = match[1];
+                    try {
+                        content = JSON.parse(`"${content}"`);
+                    } catch (err) {
+                        content = content.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                    }
+                    setOptimizedPrompt(content);
+                } else {
+                    setOptimizedPrompt(trimmed);
+                }
             }
         }
         
         setIsOptimizing(false);
       },
       {
-        model: 'gpt-4o-mini', // or 'gpt-3.5-turbo'
+        // model: 'gpt-4o-mini', // Removed hardcoded model to use backend default
         systemPrompt: systemPrompt,
         images: images // Pass uploaded images
       }
@@ -559,9 +572,7 @@ ${knowledgeBase}
                 </div>
               )}
               
-              {/* Decorative corner accents */}
-              <div className="absolute top-0 left-0 w-20 h-20 bg-gradient-to-br from-cyan-500/5 to-transparent pointer-events-none"></div>
-              <div className="absolute bottom-0 right-0 w-20 h-20 bg-gradient-to-tl from-purple-500/5 to-transparent pointer-events-none"></div>
+              {/* Decorative corner accents removed */}
             </div>
           </div>
         </div>
